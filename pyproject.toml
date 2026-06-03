@@ -1,0 +1,210 @@
+[tool.poetry]
+name = "powerbi-governance"
+version = "0.1.0"
+description = "Enterprise Power BI Governance Platform - Automated workspace discovery, usage metrics collection, activity events, license auditing and user analysis"
+authors = ["Jeferson Machado <devops@yourcompany.com>"]
+readme = "README.md"
+license = "MIT"
+packages = [{include = "powerbi_governance", from = "src"}]
+repository = "https://github.com/yourorg/powerbi-governance"
+documentation = "https://powerbi-governance.readthedocs.io"
+keywords = ["power-bi", "governance", "audit", "data-engineering"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business",
+    "Topic :: Database",
+]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+# Core dependencies
+pydantic = "^2.6"
+pydantic-settings = "^2.1"
+sqlalchemy = "^2.0"
+alembic = "^1.13"
+pandas = "^2.1"
+pyarrow = "^14.0"
+
+# Async & HTTP
+httpx = "^0.25"
+tenacity = "^8.2"
+
+# Authentication & Microsoft APIs
+msal = "^1.27"
+msgraph-core = "^1.0"
+
+# Logging & Structured Logging
+structlog = "^24.1"
+rich = "^13.7"
+
+# Database
+psycopg2-binary = "^2.9"
+
+# CLI
+typer = {version = "^0.9", extras = ["all"]}
+
+# Configuration
+python-dotenv = "^1.0"
+
+# Utilities
+pytz = "^2024.1"
+arrow = "^1.3"
+
+[tool.poetry.group.dev.dependencies]
+# Testing
+pytest = "^7.4"
+pytest-asyncio = "^0.21"
+pytest-cov = "^4.1"
+pytest-mock = "^3.12"
+pytest-xdist = "^3.5"
+pytest-timeout = "^2.2"
+factory-boy = "^3.3"
+faker = "^21.0"
+
+# Code Quality
+ruff = "^0.1"
+mypy = "^1.7"
+types-pytz = "^2024.1.0.20240417"
+types-requests = "^2.31.0"
+
+# Pre-commit
+pre-commit = "^3.5"
+
+# Development utilities
+ipython = "^8.19"
+ipdb = "^0.13"
+
+# Documentation
+sphinx = "^7.2"
+sphinx-rtd-theme = "^2.0"
+sphinx-autodoc-typehints = "^1.25"
+
+[tool.poetry.group.docs.dependencies]
+sphinx = "^7.2"
+sphinx-rtd-theme = "^2.0"
+sphinx-autodoc-typehints = "^1.25"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+# ============================================================================
+# TOOL CONFIGURATIONS
+# ============================================================================
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src", "tests"]
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    ".eggs",
+    "*.egg",
+    ".tox",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    "dist",
+    "build",
+    ".ruff_cache",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "ARG",    # flake8-unused-arguments
+    "SIM",    # flake8-simplify
+    "RUF",    # Ruff-specific rules
+]
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+    "W292",   # Blank line at end of file
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["powerbi_governance"]
+known-third-party = ["pydantic", "sqlalchemy", "structlog"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ARG001"]
+"__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+ignore_missing_imports = false
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "msal.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pyodbc.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_errors = true
+
+[tool.pytest.ini_options]
+minversion = "7.4"
+addopts = "-ra --strict-markers --disable-warnings --cov=src/powerbi_governance --cov-report=term-missing --cov-report=html --cov-branch"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+asyncio_default_fixture_scope = "function"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+    "external: Tests requiring external services",
+]
+timeout = 300
+
+[tool.coverage.run]
+source = ["src/powerbi_governance"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__main__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "if typing.TYPE_CHECKING:",
+    "@abstractmethod",
+    "@abc.abstractmethod",
+]
+precision = 2
+skip_covered = false
+sort = "Cover"
