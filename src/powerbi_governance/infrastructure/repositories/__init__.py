@@ -173,10 +173,68 @@ class UserRepository(BaseRepository[T]):
         pass
 
 
+class UsageMetricRepository(BaseRepository[T]):
+    """Repository for usage metric operations"""
+
+    def get_by_id(self, id: str) -> Optional[T]:
+        """Get usage metric by ID"""
+        pass
+
+    def get_all(self, skip: int = 0, limit: int = 100) -> List[T]:
+        """Get all usage metrics"""
+        pass
+
+    def create(self, entity: T) -> T:
+        """Create new usage metric"""
+        pass
+
+    def update(self, id: str, entity: T) -> Optional[T]:
+        """Update usage metric"""
+        pass
+
+    def delete(self, id: str) -> bool:
+        """Delete usage metric"""
+        pass
+
+    def get_by_workspace(self, workspace_id: str) -> List[T]:
+        """Get usage metrics for a workspace"""
+        pass
+
+
+class ActivityEventRepository(BaseRepository[T]):
+    """Repository for activity event operations"""
+
+    def get_by_id(self, id: str) -> Optional[T]:
+        """Get activity event by ID"""
+        pass
+
+    def get_all(self, skip: int = 0, limit: int = 100) -> List[T]:
+        """Get all activity events"""
+        pass
+
+    def create(self, entity: T) -> T:
+        """Create new activity event"""
+        pass
+
+    def update(self, id: str, entity: T) -> Optional[T]:
+        """Update activity event"""
+        pass
+
+    def delete(self, id: str) -> bool:
+        """Delete activity event"""
+        pass
+
+    def get_recent_events(self, days: int = 1) -> List[T]:
+        """Get recent activity events"""
+        pass
+
+
 __all__ = [
     "BaseRepository",
     "WorkspaceRepository",
     "DatasetRepository",
     "ReportRepository",
     "UserRepository",
+    "UsageMetricRepository",
+    "ActivityEventRepository",
 ]
