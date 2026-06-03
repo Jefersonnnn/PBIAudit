@@ -58,7 +58,7 @@ class PowerBIClient:
         """
         log.info("Fetching workspaces", skip=skip, top=top)
 
-        url = f"{self.base_url}/admin/groups"
+        url = f"{self.base_url}/groups"
         params = {"$skip": skip, "$top": top}
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:

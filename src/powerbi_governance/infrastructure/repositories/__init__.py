@@ -10,7 +10,7 @@ before re-raising the original exception.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, Optional, List
 from uuid import uuid4
 
 from sqlalchemy import or_, select
@@ -219,22 +219,22 @@ class UserRepository(BaseRepository[UserModel]):
         return list(self.session.scalars(statement).all())
 
 
-class UsageMetricRepository(BaseRepository[T]):
+class UsageMetricRepository(BaseRepository[ModelT]):
     """Repository for usage metric operations"""
 
-    def get_by_id(self, id: str) -> Optional[T]:
+    def get_by_id(self, id: str) -> Optional[ModelT]:
         """Get usage metric by ID"""
         pass
 
-    def get_all(self, skip: int = 0, limit: int = 100) -> List[T]:
+    def get_all(self, skip: int = 0, limit: int = 100) -> List[ModelT]:
         """Get all usage metrics"""
         pass
 
-    def create(self, entity: T) -> T:
+    def create(self, entity: ModelT) -> ModelT:
         """Create new usage metric"""
         pass
 
-    def update(self, id: str, entity: T) -> Optional[T]:
+    def update(self, id: str, entity: ModelT) -> Optional[ModelT]:
         """Update usage metric"""
         pass
 
@@ -242,27 +242,27 @@ class UsageMetricRepository(BaseRepository[T]):
         """Delete usage metric"""
         pass
 
-    def get_by_workspace(self, workspace_id: str) -> List[T]:
+    def get_by_workspace(self, workspace_id: str) -> List[ModelT]:
         """Get usage metrics for a workspace"""
         pass
 
 
-class ActivityEventRepository(BaseRepository[T]):
+class ActivityEventRepository(BaseRepository[ModelT]):
     """Repository for activity event operations"""
 
-    def get_by_id(self, id: str) -> Optional[T]:
+    def get_by_id(self, id: str) -> Optional[ModelT]:
         """Get activity event by ID"""
         pass
 
-    def get_all(self, skip: int = 0, limit: int = 100) -> List[T]:
+    def get_all(self, skip: int = 0, limit: int = 100) -> List[ModelT]:
         """Get all activity events"""
         pass
 
-    def create(self, entity: T) -> T:
+    def create(self, entity: ModelT) -> ModelT:
         """Create new activity event"""
         pass
 
-    def update(self, id: str, entity: T) -> Optional[T]:
+    def update(self, id: str, entity: ModelT) -> Optional[ModelT]:
         """Update activity event"""
         pass
 
@@ -270,7 +270,7 @@ class ActivityEventRepository(BaseRepository[T]):
         """Delete activity event"""
         pass
 
-    def get_recent_events(self, days: int = 1) -> List[T]:
+    def get_recent_events(self, days: int = 1) -> List[ModelT]:
         """Get recent activity events"""
         pass
 
