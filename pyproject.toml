@@ -48,7 +48,7 @@ rich = "^13.7"
 psycopg2-binary = "^2.9"
 
 # CLI
-typer = {version = "^0.9", extras = ["all"]}
+typer = {version = "^0.15", extras = ["all"]}
 
 # Configuration
 python-dotenv = "^1.0"
