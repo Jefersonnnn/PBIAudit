@@ -9,11 +9,12 @@ import pytest
 
 from powerbi_governance.application.services import (
     ActivityEventsService,
+    LicenseService,
     UsageMetricsService,
     UserService,
     WorkspaceService,
 )
-from powerbi_governance.domain.entities import ActivityEvent, UsageMetric, User, Workspace
+from powerbi_governance.domain.entities import ActivityEvent, LicenseAssignment, UsageMetric, User, Workspace
 
 
 class UpsertRepository:
@@ -25,6 +26,20 @@ class UpsertRepository:
     async def upsert(self, entity):
         self.entities.append(entity)
         return entity
+
+
+class FakeLicenseRepository:
+    """Repository fake standing in for LicenseAssignmentRepository's snapshot semantics."""
+
+    def __init__(self) -> None:
+        self.assignments: list = []
+
+    def replace_all(self, assignments) -> int:
+        self.assignments = list(assignments)
+        return len(self.assignments)
+
+    def get_all(self) -> list:
+        return self.assignments
 
 
 @pytest.mark.unit
@@ -212,3 +227,95 @@ class TestUserService:
 
         with pytest.raises(RuntimeError, match="Inactive users identification failed"):
             await UserService(graph_client, AsyncMock(), UpsertRepository()).identify_inactive_users()
+
+
+@pytest.mark.unit
+class TestLicenseService:
+    async def test_sync_license_assignments_filters_to_power_bi_plans_and_dedupes(self):
+        graph_client = AsyncMock()
+        graph_client.get_subscribed_skus.return_value = {
+            "value": [
+                {
+                    "servicePlans": [
+                        {"servicePlanId": "plan-pro", "servicePlanName": "BI_AZURE_P2"},
+                        {"servicePlanId": "plan-exchange", "servicePlanName": "EXCHANGE_S_STANDARD"},
+                    ]
+                }
+            ]
+        }
+        graph_client.get_all_users_with_licenses.return_value = [
+            {
+                "id": "user-1",
+                "mail": "pro@example.com",
+                "displayName": "Pro User",
+                "accountEnabled": True,
+                "assignedPlans": [
+                    {"capabilityStatus": "Enabled", "servicePlanId": "plan-pro"},
+                    {"capabilityStatus": "Enabled", "servicePlanId": "plan-pro"},
+                    {"capabilityStatus": "Enabled", "servicePlanId": "plan-exchange"},
+                    {"capabilityStatus": "Deleted", "servicePlanId": "plan-pro"},
+                ],
+            },
+            {
+                "id": "user-2",
+                "mail": "nolicense@example.com",
+                "displayName": "No License",
+                "accountEnabled": True,
+                "assignedPlans": [{"capabilityStatus": "Enabled", "servicePlanId": "plan-exchange"}],
+            },
+        ]
+
+        repository = FakeLicenseRepository()
+        count = await LicenseService(graph_client, repository).sync_license_assignments()
+
+        assert count == 1
+        assert len(repository.assignments) == 1
+        assignment = repository.assignments[0]
+        assert isinstance(assignment, LicenseAssignment)
+        assert assignment.email == "pro@example.com"
+        assert assignment.license_type == "Power BI Pro"
+        assert assignment.service_plan_name == "BI_AZURE_P2"
+
+    async def test_sync_license_assignments_wraps_errors_with_context(self):
+        graph_client = AsyncMock()
+        graph_client.get_subscribed_skus.side_effect = RuntimeError("graph failed")
+
+        with pytest.raises(RuntimeError, match="License assignment synchronization failed"):
+            await LicenseService(graph_client, FakeLicenseRepository()).sync_license_assignments()
+
+    def test_build_usage_report_flags_idle_and_never_used_licenses_first(self):
+        repository = FakeLicenseRepository()
+        repository.assignments = [
+            LicenseAssignment(
+                user_id="user-1",
+                email="active@example.com",
+                display_name="Active",
+                license_type="Power BI Pro",
+                service_plan_name="BI_AZURE_P2",
+            ),
+            LicenseAssignment(
+                user_id="user-2",
+                email="idle@example.com",
+                display_name="Idle",
+                license_type="Power BI Pro",
+                service_plan_name="BI_AZURE_P2",
+            ),
+        ]
+        activity_summary = {
+            "active@example.com": {
+                "last_access": datetime.utcnow() - timedelta(days=1),
+                "resources": {"Executive Dashboard"},
+            }
+        }
+
+        rows = LicenseService(AsyncMock(), repository).build_usage_report(activity_summary)
+
+        assert [row.email for row in rows] == ["idle@example.com", "active@example.com"]
+        never_used_row = rows[0]
+        assert never_used_row.last_access is None
+        assert never_used_row.days_since_access is None
+        assert never_used_row.resources == []
+
+        active_row = rows[1]
+        assert active_row.days_since_access == 1
+        assert active_row.resources == ["Executive Dashboard"]

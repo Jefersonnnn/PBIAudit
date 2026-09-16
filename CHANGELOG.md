@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- License usage audit: `sync-licenses` and `license-report` CLI commands cross-reference Power
+  BI-related Microsoft 365 license assignments (from Microsoft Graph `assignedPlans`) with
+  persisted Power BI activity events, to find licensed users who never or rarely use Power BI
+- `LicenseAssignment` domain entity, `license_assignments` table/migration and repository
+- `LicenseService` (sync + report building) and `GraphClient.get_all_users_with_licenses` /
+  `get_subscribed_skus`
+- `ActivityEventRepository` now actually persists events and aggregates last access + distinct
+  resources per user (was a stub that silently discarded every synced event)
 - Project scaffolding and complete directory structure
 - Clean Architecture implementation with 7 layers
 - Poetry configuration with comprehensive dependencies
@@ -37,6 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - API reference (planned)
   - Project roadmap
   - Project structure documentation
+
+### Security
+- Removed a hardcoded database password that was checked into `core/config.py` as the default
+  `database_url` value; it is now required to come from `.env`/the environment. **Rotate that
+  database password**, since it was present in the committed source history.
 
 ### Planned (Phase 2)
 - Complete service implementations

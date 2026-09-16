@@ -71,6 +71,17 @@ class UsageMetric(BaseEntity):
     unique_viewers: int = Field(default=0, description="Number of unique viewers")
 
 
+class LicenseAssignment(BaseEntity):
+    """Power BI-related Microsoft 365 license assigned to a user"""
+    user_id: str = Field(description="Azure AD object ID")
+    email: str = Field(description="User email/UPN")
+    display_name: str = Field(description="User display name")
+    license_type: str = Field(description="Human-readable license name, e.g. 'Power BI Pro'")
+    service_plan_name: str = Field(description="Raw Microsoft service plan identifier, e.g. 'BI_AZURE_P2'")
+    is_account_enabled: bool = Field(default=True, description="Is the Azure AD account enabled")
+    synced_at: datetime = Field(default_factory=datetime.utcnow, description="When this assignment was observed")
+
+
 class ActivityEvent(BaseEntity):
     """Activity event from audit logs"""
     event_id: str = Field(description="Event unique identifier")
@@ -91,4 +102,5 @@ __all__ = [
     "Report",
     "UsageMetric",
     "ActivityEvent",
+    "LicenseAssignment",
 ]

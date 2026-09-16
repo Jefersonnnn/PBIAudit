@@ -115,6 +115,67 @@ class GraphClient:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
     )
+    async def get_subscribed_skus(self) -> dict:
+        """
+        Get the tenant's subscribed license SKUs and their service plans.
+
+        Used to translate a user's ``assignedPlans[].servicePlanId`` values
+        into human-readable service plan names (e.g. "BI_AZURE_P2").
+
+        Requires Organization.Read.All or Directory.Read.All (application permission).
+
+        Returns:
+            API response with subscribed SKUs
+        """
+        log.info("Fetching subscribed SKUs from Graph")
+
+        url = f"{self.base_url}/subscribedSkus"
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(url, headers=self._get_headers())
+            response.raise_for_status()
+            return response.json()
+
+    async def get_all_users_with_licenses(self, page_size: int = 999) -> list[dict]:
+        """
+        Fetch every Azure AD user with the fields needed for license auditing,
+        following ``@odata.nextLink`` pagination until exhausted.
+
+        Requires User.Read.All (application permission).
+
+        Args:
+            page_size: Page size requested per Graph call (max 999)
+
+        Returns:
+            List of raw user payloads with id, displayName, mail,
+            userPrincipalName, accountEnabled and assignedPlans
+        """
+        log.info("Fetching all users with license info from Graph")
+
+        select_fields = ",".join(
+            ["id", "displayName", "mail", "userPrincipalName", "accountEnabled", "assignedPlans"]
+        )
+        url = f"{self.base_url}/users"
+        params: Optional[dict] = {"$select": select_fields, "$top": page_size}
+
+        users: list[dict] = []
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            while url:
+                response = await client.get(url, headers=self._get_headers(), params=params)
+                response.raise_for_status()
+                payload = response.json()
+
+                users.extend(payload.get("value", []))
+                url = payload.get("@odata.nextLink")
+                params = None  # nextLink already includes query parameters
+
+        log.info("Fetched users with license info", user_count=len(users))
+        return users
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+    )
     async def get_organization(self) -> dict:
         """
         Get organization information.
