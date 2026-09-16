@@ -37,7 +37,6 @@ class Settings(BaseSettings):
     # DATABASE
     # ========================================================================
     database_url: PostgresDsn = Field(
-        default="postgresql+psycopg2://ciop:C10pD3v@192.168.1.54:5432/powerbi_governance",
         description="SQLAlchemy database connection string"
     )
     database_pool_size: int = Field(default=10, description="Connection pool size")

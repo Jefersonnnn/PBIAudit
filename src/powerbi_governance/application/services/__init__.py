@@ -3,13 +3,14 @@ Domain services - High-level business operations
 """
 
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from inspect import isawaitable
 from typing import Any, Optional
 
 import structlog
 
-from powerbi_governance.domain.entities import ActivityEvent, UsageMetric, User, Workspace
+from powerbi_governance.domain.entities import ActivityEvent, LicenseAssignment, UsageMetric, User, Workspace
 
 log = structlog.get_logger(__name__)
 
@@ -571,9 +572,195 @@ class UserService:
         )
 
 
+@dataclass
+class LicenseUsageRow:
+    """One row of the license-vs-usage audit report."""
+
+    display_name: str
+    email: str
+    license_type: str
+    is_account_enabled: bool
+    last_access: Optional[datetime]
+    days_since_access: Optional[int]
+    resources: list[str] = field(default_factory=list)
+
+
+class LicenseService:
+    """
+    Business logic for Power BI license auditing.
+
+    Cross-references Power BI-related Microsoft 365 license assignments
+    (Microsoft Graph) with persisted Power BI activity events, to identify
+    licensed users who are not actually using Power BI.
+    """
+
+    # Microsoft's stable service plan identifiers for Power BI licenses.
+    # Reference: "Product names and service plan identifiers for licensing".
+    _KNOWN_SERVICE_PLANS: dict[str, str] = {
+        "BI_AZURE_P0": "Power BI (Free)",
+        "BI_AZURE_P1": "Power BI Pro (legacy)",
+        "BI_AZURE_P2": "Power BI Pro",
+        "BI_AZURE_P3": "Power BI Premium",
+        "PBI_PREMIUM_PER_USER": "Power BI Premium Per User",
+        "PBI_PREMIUM_PER_USER_ADDON": "Power BI Premium Per User Add-On",
+        "PBI_PREMIUM_PER_USER_FACULTY": "Power BI Premium Per User (Faculty)",
+    }
+    _RELEVANT_SERVICE_PLAN_PREFIXES = ("BI_AZURE_", "PBI_PREMIUM_")
+
+    def __init__(self, graph_client, repository) -> None:
+        """
+        Initialize license service.
+
+        Args:
+            graph_client: Microsoft Graph client
+            repository: License assignment repository for persistence
+        """
+        self.graph_client = graph_client
+        self.repository = repository
+
+    async def sync_license_assignments(self) -> int:
+        """
+        Fetch every Power BI-related license assignment from Microsoft Graph
+        and replace the persisted snapshot with it.
+
+        Returns:
+            Number of license assignments synchronized
+        """
+        log.info("Starting license assignment synchronization")
+
+        try:
+            skus_payload = await self.graph_client.get_subscribed_skus()
+            plan_id_to_name = self._build_service_plan_id_map(_items_from_response(skus_payload))
+
+            raw_users = await self.graph_client.get_all_users_with_licenses()
+            synced_at = datetime.utcnow()
+
+            assignments: list[LicenseAssignment] = []
+            for raw_user in raw_users:
+                assignments.extend(self._extract_license_assignments(raw_user, plan_id_to_name, synced_at))
+
+            synced_count = self.repository.replace_all(assignments)
+            log.info(
+                "License assignment synchronization completed",
+                user_count=len(raw_users),
+                assignment_count=synced_count,
+            )
+            return synced_count
+
+        except Exception as e:
+            log.exception("License assignment synchronization failed", error=str(e))
+            raise RuntimeError(f"License assignment synchronization failed: {e}") from e
+
+    def build_usage_report(self, activity_summary: Mapping[str, Mapping[str, Any]]) -> list[LicenseUsageRow]:
+        """
+        Combine the current license snapshot with a per-user activity summary.
+
+        Args:
+            activity_summary: Mapping produced by
+                ``ActivityEventRepository.get_usage_summary_by_user`` —
+                lowercased email/UPN to {"last_access": datetime, "resources": set[str]}
+
+        Returns:
+            One row per license assignment, sorted with the longest-idle
+            (or never-used) licenses first.
+        """
+        now = datetime.utcnow()
+        rows: list[LicenseUsageRow] = []
+
+        for assignment in self.repository.get_all():
+            activity = activity_summary.get(assignment.email.lower())
+            last_access = activity["last_access"] if activity else None
+            resources = sorted(activity["resources"]) if activity else []
+            days_since_access = (now - last_access).days if last_access else None
+
+            rows.append(
+                LicenseUsageRow(
+                    display_name=assignment.display_name,
+                    email=assignment.email,
+                    license_type=assignment.license_type,
+                    is_account_enabled=assignment.is_account_enabled,
+                    last_access=last_access,
+                    days_since_access=days_since_access,
+                    resources=resources,
+                )
+            )
+
+        rows.sort(key=lambda row: (row.days_since_access is None, row.days_since_access or 0), reverse=True)
+        return rows
+
+    def _build_service_plan_id_map(self, skus: Iterable[Any]) -> dict[str, str]:
+        """Map servicePlanId -> raw servicePlanName from the tenant's subscribed SKUs."""
+        plan_id_to_name: dict[str, str] = {}
+        for sku in skus:
+            if not isinstance(sku, Mapping):
+                continue
+            for plan in sku.get("servicePlans") or []:
+                if not isinstance(plan, Mapping):
+                    continue
+                plan_id = plan.get("servicePlanId")
+                plan_name = plan.get("servicePlanName")
+                if plan_id and plan_name:
+                    plan_id_to_name[str(plan_id)] = str(plan_name)
+        return plan_id_to_name
+
+    def _extract_license_assignments(
+        self, raw_user: Any, plan_id_to_name: Mapping[str, str], synced_at: datetime
+    ) -> list[LicenseAssignment]:
+        """Extract Power BI-related license assignments for a single Graph user payload."""
+        if not isinstance(raw_user, Mapping):
+            log.warning("Skipping invalid user payload", payload_type=type(raw_user).__name__)
+            return []
+
+        email = _first_present(raw_user, "mail", "userPrincipalName")
+        user_id = _first_present(raw_user, "id", default=email)
+        if not email or not user_id:
+            log.warning("Skipping user without identity fields", user=raw_user)
+            return []
+
+        display_name = str(_first_present(raw_user, "displayName", default=email))
+        is_enabled = bool(_first_present(raw_user, "accountEnabled", default=True))
+
+        assignments: list[LicenseAssignment] = []
+        seen_plans: set[str] = set()
+
+        for plan in raw_user.get("assignedPlans") or []:
+            if not isinstance(plan, Mapping):
+                continue
+            if str(plan.get("capabilityStatus", "")).lower() != "enabled":
+                continue
+
+            raw_name = plan_id_to_name.get(str(plan.get("servicePlanId")))
+            if not raw_name or raw_name in seen_plans or not self._is_power_bi_plan(raw_name):
+                continue
+            seen_plans.add(raw_name)
+
+            assignments.append(
+                LicenseAssignment(
+                    user_id=str(user_id),
+                    email=str(email).lower(),
+                    display_name=display_name,
+                    license_type=self._KNOWN_SERVICE_PLANS.get(raw_name, raw_name),
+                    service_plan_name=raw_name,
+                    is_account_enabled=is_enabled,
+                    synced_at=synced_at,
+                )
+            )
+
+        return assignments
+
+    @classmethod
+    def _is_power_bi_plan(cls, raw_service_plan_name: str) -> bool:
+        """Check whether a raw Microsoft service plan name is a Power BI license."""
+        return raw_service_plan_name in cls._KNOWN_SERVICE_PLANS or raw_service_plan_name.startswith(
+            cls._RELEVANT_SERVICE_PLAN_PREFIXES
+        )
+
+
 __all__ = [
     "WorkspaceService",
     "UsageMetricsService",
     "ActivityEventsService",
     "UserService",
+    "LicenseService",
+    "LicenseUsageRow",
 ]

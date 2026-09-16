@@ -17,7 +17,9 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from powerbi_governance.infrastructure.database.models import (
+    ActivityEventModel,
     DatasetModel,
+    LicenseAssignmentModel,
     ReportModel,
     UserModel,
     WorkspaceModel,
@@ -247,32 +249,72 @@ class UsageMetricRepository(BaseRepository[ModelT]):
         pass
 
 
-class ActivityEventRepository(BaseRepository[ModelT]):
+class ActivityEventRepository(BaseRepository[ActivityEventModel]):
     """Repository for activity event operations"""
 
-    def get_by_id(self, id: str) -> Optional[ModelT]:
-        """Get activity event by ID"""
-        pass
+    model_class = ActivityEventModel
+    external_key = "event_id"
 
-    def get_all(self, skip: int = 0, limit: int = 100) -> List[ModelT]:
-        """Get all activity events"""
-        pass
+    def get_recent_events(self, days: int = 1) -> List[ActivityEventModel]:
+        """Get activity events from the last N days."""
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        statement = select(ActivityEventModel).where(ActivityEventModel.event_time >= cutoff)
+        return list(self.session.scalars(statement).all())
 
-    def create(self, entity: ModelT) -> ModelT:
-        """Create new activity event"""
-        pass
+    def get_usage_summary_by_user(self) -> dict[str, dict[str, Any]]:
+        """
+        Aggregate persisted activity events per user.
 
-    def update(self, id: str, entity: ModelT) -> Optional[ModelT]:
-        """Update activity event"""
-        pass
+        Returns:
+            Mapping of lowercased user_id (email/UPN) to
+            {"last_access": datetime, "resources": set[str]} where resources
+            are the distinct resource names (reports/dashboards/datasets) touched.
+        """
+        summary: dict[str, dict[str, Any]] = {}
+        for event in self.get_all(limit=1_000_000):
+            user_key = event.user_id.lower()
+            entry = summary.setdefault(user_key, {"last_access": event.event_time, "resources": set()})
 
-    def delete(self, id: str) -> bool:
-        """Delete activity event"""
-        pass
+            if event.event_time > entry["last_access"]:
+                entry["last_access"] = event.event_time
+            if event.resource_name:
+                entry["resources"].add(event.resource_name)
 
-    def get_recent_events(self, days: int = 1) -> List[ModelT]:
-        """Get recent activity events"""
-        pass
+        return summary
+
+
+class LicenseAssignmentRepository(BaseRepository[LicenseAssignmentModel]):
+    """Repository for Power BI license assignment snapshots."""
+
+    model_class = LicenseAssignmentModel
+
+    def replace_all(self, assignments: list[Any]) -> int:
+        """
+        Replace the current license snapshot with a fresh set of assignments.
+
+        License assignments are synced as a full point-in-time snapshot rather
+        than upserted row-by-row, since a user's set of licenses can shrink
+        between syncs and stale rows would otherwise linger. Accepts domain
+        entities or dicts, consistent with the other repositories' ``create``.
+        """
+        try:
+            self.session.query(LicenseAssignmentModel).delete()
+            count = 0
+            for assignment in assignments:
+                data = self._entity_to_dict(assignment)
+                data.setdefault("id", str(uuid4()))
+                self.session.add(LicenseAssignmentModel(**data))
+                count += 1
+            self.session.commit()
+            return count
+        except Exception:
+            self.session.rollback()
+            raise
+
+    def get_all(self, skip: int = 0, limit: int = 100_000) -> list[LicenseAssignmentModel]:
+        """Get all current license assignments."""
+        statement = select(LicenseAssignmentModel).offset(skip).limit(limit)
+        return list(self.session.scalars(statement).all())
 
 
 __all__ = [
@@ -283,4 +325,5 @@ __all__ = [
     "UserRepository",
     "UsageMetricRepository",
     "ActivityEventRepository",
+    "LicenseAssignmentRepository",
 ]

@@ -133,7 +133,6 @@ dmypy.json
 # Project specific
 *.db
 *.sqlite
-migrations/versions/
 .ruff_cache/
 .mypy_cache/
 
