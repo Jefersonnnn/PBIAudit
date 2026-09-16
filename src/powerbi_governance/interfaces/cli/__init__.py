@@ -15,7 +15,12 @@ from rich.console import Console
 from rich.table import Table
 from sqlalchemy.orm import Session
 
-from powerbi_governance.application.services import ActivityEventsService, UsageMetricsService, WorkspaceService
+from powerbi_governance.application.services import (
+    ActivityEventsService,
+    LicenseService,
+    UsageMetricsService,
+    WorkspaceService,
+)
 from powerbi_governance.core import Settings, configure_logging, get_settings
 from powerbi_governance.infrastructure.auth import MsalAuthenticator, MsalGraphAuthenticator
 from powerbi_governance.infrastructure.clients.graph import GraphClient
@@ -24,6 +29,7 @@ from powerbi_governance.infrastructure.clients.xmla import XmlaClient
 from powerbi_governance.infrastructure.database import DatabaseManager
 from powerbi_governance.infrastructure.repositories import (
     ActivityEventRepository,
+    LicenseAssignmentRepository,
     UsageMetricRepository,
     WorkspaceRepository,
 )
@@ -54,6 +60,7 @@ class CliContext:
     workspace_repository: WorkspaceRepository
     usage_metric_repository: UsageMetricRepository
     activity_event_repository: ActivityEventRepository
+    license_repository: LicenseAssignmentRepository
 
     def close(self) -> None:
         """Release resources created for a CLI command."""
@@ -92,6 +99,7 @@ def _build_cli_context() -> CliContext:
         workspace_repository=WorkspaceRepository(session),
         usage_metric_repository=UsageMetricRepository(session),
         activity_event_repository=ActivityEventRepository(session),
+        license_repository=LicenseAssignmentRepository(session),
     )
 
 
@@ -174,6 +182,107 @@ def sync_activity_events(
         service = ActivityEventsService(context.powerbi_client, context.activity_event_repository)
         events_count = _run_async(service.sync_activity_events(days_back=days_back))
         console.print(f"[green]✓ Synchronized {events_count} activity events[/green]")
+
+    except Exception as e:
+        console.print(f"[red]✗ Error: {e!s}[/red]")
+        raise typer.Exit(code=1) from e
+    finally:
+        if context:
+            context.close()
+
+
+@app.command()
+def sync_licenses() -> None:
+    """Synchronize Power BI license assignments from Microsoft Graph"""
+    console.print("[bold blue]🔑 Syncing license assignments...[/bold blue]")
+
+    context: CliContext | None = None
+    try:
+        context = _build_cli_context()
+        service = LicenseService(context.graph_client, context.license_repository)
+        assignment_count = _run_async(service.sync_license_assignments())
+        console.print(f"[green]✓ Synchronized {assignment_count} license assignments[/green]")
+
+    except Exception as e:
+        console.print(f"[red]✗ Error: {e!s}[/red]")
+        raise typer.Exit(code=1) from e
+    finally:
+        if context:
+            context.close()
+
+
+@app.command()
+def license_report(
+    inactive_days: Annotated[
+        int, typer.Option(help="Days without activity before a license is flagged as idle")
+    ] = 30,
+) -> None:
+    """
+    Cross-reference Power BI licenses with actual usage to find idle/unused licenses.
+
+    Reads from the local database, so run 'sync-licenses' and 'sync-activity-events'
+    first (or on a schedule) to keep this report up to date.
+    """
+    console.print("[bold blue]🔍 Building license usage report...[/bold blue]")
+
+    context: CliContext | None = None
+    try:
+        context = _build_cli_context()
+        license_service = LicenseService(context.graph_client, context.license_repository)
+
+        activity_summary = context.activity_event_repository.get_usage_summary_by_user()
+        rows = license_service.build_usage_report(activity_summary)
+
+        if not rows:
+            console.print(
+                "[yellow]No license assignments found. Run 'sync-licenses' first "
+                "(requires Graph User.Read.All and Organization.Read.All permissions).[/yellow]"
+            )
+            return
+
+        table = Table(title="Power BI License Usage Audit")
+        table.add_column("Name", style="magenta")
+        table.add_column("Email", style="cyan")
+        table.add_column("License", style="blue")
+        table.add_column("Last Access", style="white")
+        table.add_column("Idle (days)", justify="right")
+        table.add_column("Dashboards Used", style="white")
+        table.add_column("Status")
+
+        idle_count = 0
+        never_used_count = 0
+
+        for row in rows:
+            if row.last_access is None:
+                status = "[red]● Never used[/red]"
+                never_used_count += 1
+                idle_count += 1
+            elif row.days_since_access is not None and row.days_since_access >= inactive_days:
+                status = "[yellow]● Idle[/yellow]"
+                idle_count += 1
+            else:
+                status = "[green]● Active[/green]"
+
+            dashboards_preview = ", ".join(row.resources[:3])
+            if len(row.resources) > 3:
+                dashboards_preview += f" (+{len(row.resources) - 3} more)"
+
+            table.add_row(
+                row.display_name,
+                row.email,
+                row.license_type,
+                row.last_access.strftime("%Y-%m-%d") if row.last_access else "Never",
+                str(row.days_since_access) if row.days_since_access is not None else "-",
+                dashboards_preview or "-",
+                status,
+            )
+
+        console.print(table)
+        console.print(
+            f"\n[bold]{len(rows)}[/bold] license(s) audited — "
+            f"[yellow]{idle_count}[/yellow] idle (>{inactive_days}d or never used), "
+            f"of which [red]{never_used_count}[/red] never accessed Power BI."
+        )
 
     except Exception as e:
         console.print(f"[red]✗ Error: {e!s}[/red]")

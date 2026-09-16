@@ -166,6 +166,32 @@ poetry run pbi-governance health-check
 ```
 Verifies platform health and connectivity.
 
+#### Sync License Assignments
+```bash
+poetry run pbi-governance sync-licenses
+```
+Reads every Azure AD user's Power BI-related Microsoft 365 licenses (Pro, Premium Per User, Free)
+from Microsoft Graph and stores a fresh point-in-time snapshot.
+
+#### License Usage Audit
+```bash
+poetry run pbi-governance sync-licenses
+poetry run pbi-governance sync-activity-events 30
+poetry run pbi-governance license-report --inactive-days 30
+```
+`license-report` reads the local database (populated by `sync-licenses` and
+`sync-activity-events`) and cross-references licensed users with their actual Power BI activity to
+show, per user: license type, last access, which dashboards/reports they used, and whether the
+license looks idle or was never used — the report you'd use to reclaim unused seats out of a fixed
+license pool. Run the two sync commands first (or on a schedule) to keep it current.
+
+**Required Azure AD app permissions (application/admin-consent, not delegated):**
+- `User.Read.All` — list users and their assigned license plans
+- `Organization.Read.All` — resolve license SKU/service-plan names
+- Power BI Admin API access for the service principal (Power BI Admin Portal → tenant settings →
+  "Allow service principals to use Power BI Admin APIs") — needed for `sync-activity-events` /
+  `license-report` to see who actually opened which reports.
+
 ### Python API
 
 ```python

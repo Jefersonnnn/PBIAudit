@@ -86,6 +86,22 @@ class UsageMetricModel(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class LicenseAssignmentModel(Base):
+    """Power BI-related license assignment snapshot"""
+    __tablename__ = "license_assignments"
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=False)
+    display_name = Column(String(255), nullable=False)
+    license_type = Column(String(100), nullable=False)
+    service_plan_name = Column(String(100), nullable=False)
+    is_account_enabled = Column(Boolean, default=True)
+    synced_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class ActivityEventModel(Base):
     """Activity event database model"""
     __tablename__ = "activity_events"
@@ -111,4 +127,5 @@ __all__ = [
     "ReportModel",
     "UsageMetricModel",
     "ActivityEventModel",
+    "LicenseAssignmentModel",
 ]

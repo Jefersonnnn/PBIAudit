@@ -6,10 +6,12 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from powerbi_governance.domain.entities import Dataset, Report, User, Workspace
+from powerbi_governance.domain.entities import ActivityEvent, Dataset, LicenseAssignment, Report, User, Workspace
 from powerbi_governance.infrastructure.database.models import Base
 from powerbi_governance.infrastructure.repositories import (
+    ActivityEventRepository,
     DatasetRepository,
+    LicenseAssignmentRepository,
     ReportRepository,
     UserRepository,
     WorkspaceRepository,
@@ -196,3 +198,73 @@ class TestUserRepository:
             inactive_by_flag.id,
             stale_user.id,
         }
+
+
+@pytest.mark.unit
+class TestLicenseAssignmentRepository:
+    """Tests for license assignment snapshot persistence."""
+
+    def test_replace_all_swaps_the_full_snapshot(self, db_session: Session) -> None:
+        """Each sync should fully replace prior assignments, not accumulate them."""
+        repository = LicenseAssignmentRepository(db_session)
+        repository.replace_all(
+            [
+                LicenseAssignment(
+                    user_id="user-1",
+                    email="pro@example.com",
+                    display_name="Pro User",
+                    license_type="Power BI Pro",
+                    service_plan_name="BI_AZURE_P2",
+                )
+            ]
+        )
+        assert [a.email for a in repository.get_all()] == ["pro@example.com"]
+
+        count = repository.replace_all(
+            [
+                LicenseAssignment(
+                    user_id="user-2",
+                    email="ppu@example.com",
+                    display_name="PPU User",
+                    license_type="Power BI Premium Per User",
+                    service_plan_name="PBI_PREMIUM_PER_USER",
+                )
+            ]
+        )
+
+        assert count == 1
+        assert [a.email for a in repository.get_all()] == ["ppu@example.com"]
+
+
+@pytest.mark.unit
+class TestActivityEventRepository:
+    """Tests for activity event persistence and per-user aggregation."""
+
+    def test_get_usage_summary_by_user_aggregates_last_access_and_resources(self, db_session: Session) -> None:
+        """Summary should group by lowercased user_id and collect distinct resources."""
+        repository = ActivityEventRepository(db_session)
+        repository.create(
+            ActivityEvent(
+                event_id="event-1",
+                user_id="user@example.com",
+                activity="ViewReport",
+                resource_name="Executive Dashboard",
+                event_time=datetime.utcnow() - timedelta(days=10),
+            )
+        )
+        repository.create(
+            ActivityEvent(
+                event_id="event-2",
+                user_id="USER@EXAMPLE.COM",
+                activity="ViewReport",
+                resource_name="Sales Dashboard",
+                event_time=datetime.utcnow() - timedelta(days=1),
+            )
+        )
+
+        summary = repository.get_usage_summary_by_user()
+
+        assert set(summary.keys()) == {"user@example.com"}
+        entry = summary["user@example.com"]
+        assert entry["resources"] == {"Executive Dashboard", "Sales Dashboard"}
+        assert entry["last_access"] > datetime.utcnow() - timedelta(days=2)
