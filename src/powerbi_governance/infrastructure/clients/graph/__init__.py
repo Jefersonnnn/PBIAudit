@@ -1,5 +1,7 @@
 """
 Microsoft Graph API client
+
+Reference: https://learn.microsoft.com/en-us/graph/overview?context=graph%2Fapi%2F1.0&view=graph-rest-1.0
 """
 
 from typing import Optional

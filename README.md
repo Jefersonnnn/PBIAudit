@@ -192,6 +192,10 @@ license pool. Run the two sync commands first (or on a schedule) to keep it curr
   "Allow service principals to use Power BI Admin APIs") — needed for `sync-activity-events` /
   `license-report` to see who actually opened which reports.
 
+Microsoft Graph reference (how the `assignedPlans`/`subscribedSkus` requests in
+[`GraphClient`](src/powerbi_governance/infrastructure/clients/graph/__init__.py) work):
+https://learn.microsoft.com/en-us/graph/overview?context=graph%2Fapi%2F1.0&view=graph-rest-1.0
+
 ### Python API
 
 ```python
