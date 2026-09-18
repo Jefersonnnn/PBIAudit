@@ -3,9 +3,10 @@ Unit tests - tests for individual components in isolation
 """
 
 import pytest
+from pydantic import PostgresDsn, TypeAdapter
 
 from powerbi_governance.core.config import Settings, get_settings
-from powerbi_governance.core.security import mask_secret, is_valid_uuid
+from powerbi_governance.core.security import mask_database_url, mask_secret, is_valid_uuid
 from tests.fixtures import UserFactory, WorkspaceFactory
 
 
@@ -49,6 +50,23 @@ class TestSecurityUtils:
         """Test masking empty/None secrets"""
         assert mask_secret(None) == "***"
         assert mask_secret("") == "***"
+
+    def test_mask_database_url_hides_password(self):
+        """The password must never appear in the masked output, unlike a naive '@' split."""
+        url = TypeAdapter(PostgresDsn).validate_python(
+            "postgresql+psycopg2://myuser:mysecretpass@dbhost.example:5432/mydb"
+        )
+
+        masked = mask_database_url(url)
+
+        assert "mysecretpass" not in masked
+        assert masked == "postgresql+psycopg2://myuser:***@dbhost.example:5432/mydb"
+
+    def test_mask_database_url_handles_missing_credentials(self):
+        """A URL without a password shouldn't render a stray ':***'."""
+        url = TypeAdapter(PostgresDsn).validate_python("postgresql://dbhost.example:5432/mydb")
+
+        assert mask_database_url(url) == "postgresql://dbhost.example:5432/mydb"
 
     def test_is_valid_uuid(self):
         """Test UUID validation"""

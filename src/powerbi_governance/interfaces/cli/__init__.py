@@ -21,7 +21,7 @@ from powerbi_governance.application.services import (
     UsageMetricsService,
     WorkspaceService,
 )
-from powerbi_governance.core import Settings, configure_logging, get_settings
+from powerbi_governance.core import Settings, configure_logging, get_settings, mask_database_url
 from powerbi_governance.infrastructure.auth import MsalAuthenticator, MsalGraphAuthenticator
 from powerbi_governance.infrastructure.clients.graph import GraphClient
 from powerbi_governance.infrastructure.clients.powerbi import PowerBIClient
@@ -364,7 +364,7 @@ def show_config() -> None:
     console.print("[bold]Current Configuration:[/bold]")
     console.print(f"  Environment: {settings.environment}")
     console.print(f"  Debug: {settings.debug}")
-    console.print(f"  Database: {str(settings.database_url).split('@')[0]}@...")
+    console.print(f"  Database: {mask_database_url(settings.database_url)}")
     console.print(f"  Log Level: {settings.log_level}")
     console.print(f"  Power BI API: {settings.powerbi_api_base_url}")
 

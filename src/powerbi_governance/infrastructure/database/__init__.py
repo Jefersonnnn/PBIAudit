@@ -8,7 +8,7 @@ import structlog
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
-from powerbi_governance.core import Settings, get_settings
+from powerbi_governance.core import Settings, get_settings, mask_database_url
 
 log = structlog.get_logger(__name__)
 
@@ -39,7 +39,7 @@ class DatabaseManager:
         Creates connection pool and configures SQLAlchemy for the application.
         """
         try:
-            log.info("Initializing database connection", database_url=str(self.settings.database_url).split("@")[0])
+            log.info("Initializing database connection", database_url=mask_database_url(self.settings.database_url))
 
             # Create engine with connection pooling
             self.engine = create_engine(
