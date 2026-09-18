@@ -2,19 +2,81 @@
 HTML rendering for the license usage audit report.
 
 Produces a single self-contained HTML file (no external assets) with a
-department -> user -> dashboard drill-down, using native <details>/<summary>
-elements so no JavaScript is needed.
+gerência -> department -> user -> dashboard drill-down, using native
+<details>/<summary> elements so no JavaScript is needed.
 """
 
 from __future__ import annotations
 
 import html as html_module
+import re
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Iterable, Optional
 
 from powerbi_governance.application.services import DepartmentUsageSummary, LicenseUsageRow
 
 _UNKNOWN_DEPARTMENT = "Sem departamento"
+_UNKNOWN_GERENCIA = "Sem gerência"
+
+# Azure AD's `department` field encodes the gerência (management unit) as a
+# leading numeric code, e.g. "034 CEM Coordenação Eletromecânica" -> gerência
+# "034", department label "CEM Coordenação Eletromecânica".
+_GERENCIA_CODE_PATTERN = re.compile(r"^(\d{2,})\s+(.+)$")
+
+
+@dataclass
+class _GerenciaGroup:
+    """One gerência (management unit), aggregated from the departments under it."""
+
+    code: str
+    departments: list[DepartmentUsageSummary] = field(default_factory=list)
+
+    @property
+    def total_licenses(self) -> int:
+        return sum(department.total_licenses for department in self.departments)
+
+    @property
+    def active_count(self) -> int:
+        return sum(department.active_count for department in self.departments)
+
+    @property
+    def idle_count(self) -> int:
+        return sum(department.idle_count for department in self.departments)
+
+    @property
+    def never_used_count(self) -> int:
+        return sum(department.never_used_count for department in self.departments)
+
+    @property
+    def idle_percentage(self) -> float:
+        return (self.idle_count / self.total_licenses * 100) if self.total_licenses else 0.0
+
+    @property
+    def label(self) -> str:
+        return self.code if self.code == _UNKNOWN_GERENCIA else f"Gerência {self.code}"
+
+
+def _split_gerencia_and_department(raw_department: str) -> tuple[str, str]:
+    """Split a raw department string into (gerência code, department label)."""
+    match = _GERENCIA_CODE_PATTERN.match(raw_department.strip())
+    if not match:
+        return _UNKNOWN_GERENCIA, raw_department
+    code, label = match.groups()
+    return code, label.strip() or raw_department
+
+
+def _group_by_gerencia(department_summaries: list[DepartmentUsageSummary]) -> list[_GerenciaGroup]:
+    """Group department summaries by their parsed gerência code."""
+    groups: dict[str, _GerenciaGroup] = {}
+    for summary in department_summaries:
+        code, _ = _split_gerencia_and_department(summary.department)
+        groups.setdefault(code, _GerenciaGroup(code=code)).departments.append(summary)
+
+    for group in groups.values():
+        group.departments.sort(key=lambda d: (d.idle_percentage, d.total_licenses), reverse=True)
+
+    return sorted(groups.values(), key=lambda g: (g.idle_percentage, g.total_licenses), reverse=True)
 
 
 def _escape(value: object) -> str:
@@ -71,6 +133,7 @@ def _render_department(
     summary: DepartmentUsageSummary, rows: list[LicenseUsageRow], inactive_days: int
 ) -> str:
     """Render one drill-down <details> block for a department and its users."""
+    _, label = _split_gerencia_and_department(summary.department)
     sorted_rows = sorted(
         rows, key=lambda row: (row.days_since_access is None, row.days_since_access or 0), reverse=True
     )
@@ -80,7 +143,7 @@ def _render_department(
       <details class="department" open>
         <summary>
           <span class="chevron"></span>
-          <span class="dept-name">{_escape(summary.department)}</span>
+          <span class="dept-name">{_escape(label)}</span>
           <span class="dept-stats">
             <span class="dept-total">{summary.total_licenses} licença(s)</span>
             <span class="badge status-active">{summary.active_count} ativa(s)</span>
@@ -96,6 +159,35 @@ def _render_department(
     """
 
 
+def _render_gerencia(
+    group: _GerenciaGroup, rows_by_department: dict[str, list[LicenseUsageRow]], inactive_days: int
+) -> str:
+    """Render one drill-down <details> block for a gerência and its departments."""
+    departments_html = "".join(
+        _render_department(summary, rows_by_department.get(summary.department, []), inactive_days)
+        for summary in group.departments
+    )
+
+    return f"""
+      <details class="gerencia" open>
+        <summary>
+          <span class="chevron"></span>
+          <span class="gerencia-name">{_escape(group.label)}</span>
+          <span class="dept-stats">
+            <span class="dept-total">{group.total_licenses} licença(s)</span>
+            <span class="badge status-active">{group.active_count} ativa(s)</span>
+            <span class="badge status-idle">{group.idle_count} ociosa(s)</span>
+            <span class="badge status-never">{group.never_used_count} nunca usada(s)</span>
+            <span class="dept-pct">{group.idle_percentage:.0f}% ociosa</span>
+          </span>
+        </summary>
+        <div class="gerencia-body">
+          {departments_html}
+        </div>
+      </details>
+    """
+
+
 def render_license_usage_report(
     rows: Iterable[LicenseUsageRow],
     department_summaries: Iterable[DepartmentUsageSummary],
@@ -106,8 +198,10 @@ def render_license_usage_report(
     """
     Render a standalone HTML license usage audit report.
 
-    Departments are listed first (with aggregate active/idle/never-used counts),
-    each expandable to its users, each user expandable to the dashboards they
+    Gerências (management units, parsed from the leading numeric code Azure AD
+    puts on the department field, e.g. "034 CEM Coordenação Eletromecânica")
+    are listed first, each expandable to its departments, each department
+    expandable to its users, each user expandable to the dashboards they
     accessed. Reuses the same rows/summaries as the `license-report` and
     `department-report` CLI commands, so the numbers always match.
 
@@ -135,13 +229,13 @@ def render_license_usage_report(
     total_idle = sum(summary.idle_count for summary in department_summaries)
     total_never_used = sum(summary.never_used_count for summary in department_summaries)
 
-    departments_html = "".join(
-        _render_department(summary, rows_by_department.get(summary.department, []), inactive_days)
-        for summary in department_summaries
+    gerencia_groups = _group_by_gerencia(department_summaries)
+    gerencias_html = "".join(
+        _render_gerencia(group, rows_by_department, inactive_days) for group in gerencia_groups
     )
 
     if not department_summaries:
-        departments_html = '<p class="empty">Nenhuma licença encontrada.</p>'
+        gerencias_html = '<p class="empty">Nenhuma licença encontrada.</p>'
 
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -182,7 +276,7 @@ def render_license_usage_report(
   </section>
 
   <main>
-    {departments_html}
+    {gerencias_html}
   </main>
 
   <footer>
@@ -242,14 +336,14 @@ _STYLE = """
   .card-idle .card-value { color: var(--amber); }
   .card-never .card-value { color: var(--red); }
 
-  details.department {
+  details.gerencia {
     background: var(--card-bg);
     border: 1px solid var(--border);
     border-radius: 12px;
     margin-bottom: 12px;
     overflow: hidden;
   }
-  details.department > summary {
+  details.gerencia > summary {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -258,12 +352,32 @@ _STYLE = """
     cursor: pointer;
     list-style: none;
   }
+  details.gerencia > summary::-webkit-details-marker { display: none; }
+  .gerencia-name { font-weight: 700; font-size: 17px; margin-right: auto; }
+  .gerencia-body { padding: 4px 20px 16px; border-top: 1px solid var(--border); }
+
+  details.department {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin: 10px 0;
+    overflow: hidden;
+  }
+  details.department > summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 16px;
+    cursor: pointer;
+    list-style: none;
+  }
   details.department > summary::-webkit-details-marker { display: none; }
-  .dept-name { font-weight: 700; font-size: 16px; margin-right: auto; }
+  .dept-name { font-weight: 600; font-size: 14px; margin-right: auto; }
   .dept-stats { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
   .dept-total { color: var(--muted); }
   .dept-pct { font-weight: 600; }
-  .department-body { padding: 4px 20px 16px; border-top: 1px solid var(--border); }
+  .department-body { padding: 4px 16px 12px; border-top: 1px solid var(--border); background: var(--card-bg); }
 
   details.user {
     border-top: 1px solid var(--border);
