@@ -35,6 +35,9 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 
+# Generated license usage reports (contain real employee data - never commit)
+license_report_*.html
+
 # Unit test / coverage reports
 htmlcov/
 .tox/
