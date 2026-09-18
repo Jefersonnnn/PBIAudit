@@ -187,6 +187,15 @@ which dashboards/reports they used, and whether the license looks idle or was ne
 report you'd use to reclaim unused seats out of a fixed license pool. Run the two sync commands
 first (or on a schedule) to keep it current.
 
+#### License Usage by Department
+```bash
+poetry run pbi-governance department-report --inactive-days 30
+```
+Same underlying data as `license-report`, aggregated per department (from Azure AD) instead of per
+user: total licenses, active, idle and never-used counts, and idle percentage — sorted with the
+most idle department first. Useful for spotting which team is holding onto unused seats without
+scrolling through every individual row. Requires the same syncs as `license-report`.
+
 **Required Azure AD app permissions (application/admin-consent, not delegated):**
 - `User.Read.All` — list users and their assigned license plans
 - `Organization.Read.All` — resolve license SKU/service-plan names

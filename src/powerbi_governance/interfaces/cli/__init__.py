@@ -308,6 +308,69 @@ def license_report(
 
 
 @app.command()
+def department_report(
+    inactive_days: Annotated[
+        int, typer.Option(help="Days without activity before a license is flagged as idle")
+    ] = 30,
+) -> None:
+    """
+    Summarize license usage by department, to compare utilization across teams.
+
+    Reads from the local database, so run 'sync-licenses' and 'sync-activity-events'
+    first (or on a schedule) to keep this report up to date.
+    """
+    console.print("[bold blue]🏢 Building department usage report...[/bold blue]")
+
+    context: CliContext | None = None
+    try:
+        context = _build_cli_context()
+        license_service = LicenseService(context.graph_client, context.license_repository, context.user_repository)
+
+        activity_summary = context.activity_event_repository.get_usage_summary_by_user()
+        rows = license_service.build_usage_report(activity_summary)
+
+        if not rows:
+            console.print(
+                "[yellow]No license assignments found. Run 'sync-licenses' first "
+                "(requires Graph User.Read.All and Organization.Read.All permissions).[/yellow]"
+            )
+            return
+
+        summaries = license_service.summarize_by_department(rows, inactive_days=inactive_days)
+
+        table = Table(title="Power BI License Usage by Department")
+        table.add_column("Departamento", style="magenta")
+        table.add_column("Licenças", justify="right")
+        table.add_column("Ativas", style="green", justify="right")
+        table.add_column("Ociosas", style="yellow", justify="right")
+        table.add_column("Nunca usadas", style="red", justify="right")
+        table.add_column("% Ociosa", justify="right")
+
+        for summary in summaries:
+            table.add_row(
+                summary.department,
+                str(summary.total_licenses),
+                str(summary.active_count),
+                str(summary.idle_count),
+                str(summary.never_used_count),
+                f"{summary.idle_percentage:.0f}%",
+            )
+
+        console.print(table)
+        console.print(
+            f"\n[bold]{len(summaries)}[/bold] department(s) audited "
+            f"(licença ociosa = sem acesso há {inactive_days}+ dias ou nunca usada)."
+        )
+
+    except Exception as e:
+        console.print(f"[red]✗ Error: {e!s}[/red]")
+        raise typer.Exit(code=1) from e
+    finally:
+        if context:
+            context.close()
+
+
+@app.command()
 def list_workspaces(
     skip: Annotated[int, typer.Argument(help="Skip N workspaces")] = 0,
     top: Annotated[int, typer.Argument(help="Show top N workspaces")] = 10,
@@ -421,12 +484,20 @@ def _run_interactive_menu() -> None:
         ),
         _MenuAction(
             "4",
+            "Relatório de uso por departamento",
+            "Resume licenças ativas/ociosas agrupadas por departamento",
+            lambda: department_report(
+                IntPrompt.ask("Considerar ociosa após quantos dias sem acesso?", default=30)
+            ),
+        ),
+        _MenuAction(
+            "5",
             "Sincronizar workspaces",
             "Descobre e atualiza os workspaces do Power BI",
             sync_workspaces,
         ),
         _MenuAction(
-            "5",
+            "6",
             "Listar workspaces",
             "Lista os workspaces do Power BI direto da API",
             lambda: list_workspaces(
@@ -434,13 +505,13 @@ def _run_interactive_menu() -> None:
             ),
         ),
         _MenuAction(
-            "6",
+            "7",
             "Verificar saúde da configuração",
             "Confere se as credenciais e o banco estão OK",
             health_check,
         ),
         _MenuAction(
-            "7",
+            "8",
             "Ver configuração atual",
             "Mostra environment, banco (mascarado) e endpoints",
             show_config,

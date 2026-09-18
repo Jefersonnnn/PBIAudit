@@ -613,6 +613,25 @@ class LicenseUsageRow:
     department: Optional[str] = None
 
 
+_UNKNOWN_DEPARTMENT = "Sem departamento"
+
+
+@dataclass
+class DepartmentUsageSummary:
+    """License utilization for a single department, aggregated from a usage report."""
+
+    department: str
+    total_licenses: int
+    active_count: int
+    idle_count: int
+    never_used_count: int
+
+    @property
+    def idle_percentage(self) -> float:
+        """Share of this department's licenses that are idle or never used."""
+        return (self.idle_count / self.total_licenses * 100) if self.total_licenses else 0.0
+
+
 class LicenseService:
     """
     Business logic for Power BI license auditing.
@@ -736,6 +755,48 @@ class LicenseService:
         rows.sort(key=lambda row: (row.days_since_access is None, row.days_since_access or 0), reverse=True)
         return rows
 
+    def summarize_by_department(
+        self, rows: Iterable[LicenseUsageRow], inactive_days: int = 30
+    ) -> list[DepartmentUsageSummary]:
+        """
+        Aggregate a license usage report (from ``build_usage_report``) by department,
+        to compare license utilization across teams and find where idle licenses
+        are concentrated.
+
+        Args:
+            rows: Rows produced by ``build_usage_report``
+            inactive_days: Days without activity before a license counts as idle
+
+        Returns:
+            One summary per department, sorted with the highest idle percentage first
+        """
+        counts: dict[str, dict[str, int]] = {}
+        for row in rows:
+            department = row.department or _UNKNOWN_DEPARTMENT
+            bucket = counts.setdefault(department, {"total": 0, "active": 0, "idle": 0, "never_used": 0})
+            bucket["total"] += 1
+
+            if row.last_access is None:
+                bucket["never_used"] += 1
+                bucket["idle"] += 1
+            elif row.days_since_access is not None and row.days_since_access >= inactive_days:
+                bucket["idle"] += 1
+            else:
+                bucket["active"] += 1
+
+        summaries = [
+            DepartmentUsageSummary(
+                department=department,
+                total_licenses=bucket["total"],
+                active_count=bucket["active"],
+                idle_count=bucket["idle"],
+                never_used_count=bucket["never_used"],
+            )
+            for department, bucket in counts.items()
+        ]
+        summaries.sort(key=lambda summary: (summary.idle_percentage, summary.total_licenses), reverse=True)
+        return summaries
+
     def _build_service_plan_id_map(self, skus: Iterable[Any]) -> dict[str, str]:
         """Map servicePlanId -> raw servicePlanName from the tenant's subscribed SKUs."""
         plan_id_to_name: dict[str, str] = {}
@@ -830,4 +891,5 @@ __all__ = [
     "UserService",
     "LicenseService",
     "LicenseUsageRow",
+    "DepartmentUsageSummary",
 ]

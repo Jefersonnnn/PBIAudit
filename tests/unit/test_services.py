@@ -385,3 +385,88 @@ class TestLicenseService:
         assert active_row.resources == ["Executive Dashboard"]
         assert active_row.job_title == "Gerente de Vendas"
         assert active_row.department == "Comercial"
+
+    def test_summarize_by_department_aggregates_and_ranks_by_idle_percentage(self):
+        repository = FakeLicenseRepository()
+        repository.assignments = [
+            LicenseAssignment(
+                user_id="user-1",
+                email="active@example.com",
+                display_name="Active",
+                license_type="Power BI Pro",
+                service_plan_name="BI_AZURE_P2",
+            ),
+            LicenseAssignment(
+                user_id="user-2",
+                email="idle@example.com",
+                display_name="Idle",
+                license_type="Power BI Pro",
+                service_plan_name="BI_AZURE_P2",
+            ),
+            LicenseAssignment(
+                user_id="user-3",
+                email="never-used@example.com",
+                display_name="Never Used",
+                license_type="Power BI Pro",
+                service_plan_name="BI_AZURE_P2",
+            ),
+            LicenseAssignment(
+                user_id="user-4",
+                email="no-department@example.com",
+                display_name="No Department",
+                license_type="Power BI Pro",
+                service_plan_name="BI_AZURE_P2",
+            ),
+        ]
+        activity_summary = {
+            "active@example.com": {
+                "last_access": datetime.utcnow() - timedelta(days=1),
+                "resources": {"Executive Dashboard"},
+            },
+            "idle@example.com": {
+                "last_access": datetime.utcnow() - timedelta(days=60),
+                "resources": {"Sales Dashboard"},
+            },
+        }
+        user_repository = FakeUserRepository()
+        user_repository.create(
+            User(user_id="user-1", email="active@example.com", display_name="Active", department="Comercial")
+        )
+        user_repository.create(
+            User(user_id="user-2", email="idle@example.com", display_name="Idle", department="Comercial")
+        )
+        user_repository.create(
+            User(
+                user_id="user-3",
+                email="never-used@example.com",
+                display_name="Never Used",
+                department="Financeiro",
+            )
+        )
+        # user-4 has no persisted profile, so it falls into the "no department" bucket
+
+        service = LicenseService(AsyncMock(), repository, user_repository)
+        rows = service.build_usage_report(activity_summary)
+        summaries = service.summarize_by_department(rows, inactive_days=30)
+
+        by_department = {summary.department: summary for summary in summaries}
+
+        assert by_department["Financeiro"].total_licenses == 1
+        assert by_department["Financeiro"].never_used_count == 1
+        assert by_department["Financeiro"].idle_percentage == 100.0
+
+        assert by_department["Sem departamento"].total_licenses == 1
+        assert by_department["Sem departamento"].idle_percentage == 100.0
+
+        comercial = by_department["Comercial"]
+        assert comercial.total_licenses == 2
+        assert comercial.active_count == 1
+        assert comercial.idle_count == 1
+        assert comercial.never_used_count == 0
+        assert comercial.idle_percentage == 50.0
+
+        # ranked with the highest idle percentage first; ties broken by more licenses
+        assert [summary.department for summary in summaries][:2] == ["Financeiro", "Sem departamento"] or [
+            summary.department for summary in summaries
+        ][:2] == ["Sem departamento", "Financeiro"]
+        assert summaries[-1].department == "Comercial"

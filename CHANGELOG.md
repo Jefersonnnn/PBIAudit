@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   columns.
 
 ### Added
+- `department-report` CLI command: same license-vs-usage data as `license-report`, aggregated by
+  department (active/idle/never-used counts and idle percentage per team) instead of per user.
 - License usage audit: `sync-licenses` and `license-report` CLI commands cross-reference Power
   BI-related Microsoft 365 license assignments (from Microsoft Graph `assignedPlans`) with
   persisted Power BI activity events, to find licensed users who never or rarely use Power BI
