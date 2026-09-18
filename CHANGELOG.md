@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `sync-activity-events` failed to persist every event with `psycopg2.ProgrammingError: can't
+  adapt type 'dict'`, because `activity_events.details` was a `Text` column but holds the raw
+  audit log payload (a dict). Changed to a `JSON` column (migration 004). This only surfaced
+  against real Postgres - SQLite's dynamic typing let it slide in the unit tests.
+
 ### Changed
 - `sync-licenses`/`license-report`/`department-report` now track only Power BI Pro
   (`BI_AZURE_P1`/`BI_AZURE_P2`) instead of every Power BI-related plan. Power BI (Free) doesn't

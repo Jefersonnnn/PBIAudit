@@ -260,3 +260,21 @@ class TestActivityEventRepository:
         entry = summary["user@example.com"]
         assert entry["resources"] == {"Executive Dashboard", "Sales Dashboard"}
         assert entry["last_access"] > datetime.utcnow() - timedelta(days=2)
+
+    def test_create_persists_details_as_a_dict(self, db_session: Session) -> None:
+        """The raw audit log payload (a dict) must round-trip through the `details` column."""
+        repository = ActivityEventRepository(db_session)
+        raw_payload = {"Id": "event-1", "Operation": "ViewReport", "Workload": "PowerBI"}
+
+        created = repository.create(
+            ActivityEvent(
+                event_id="event-1",
+                user_id="user@example.com",
+                activity="ViewReport",
+                event_time=datetime.utcnow(),
+                details=raw_payload,
+            )
+        )
+
+        assert created.details == raw_payload
+        assert repository.get_by_id(created.id).details == raw_payload

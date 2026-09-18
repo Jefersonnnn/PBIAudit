@@ -4,7 +4,7 @@ SQLAlchemy ORM models for database persistence
 
 from datetime import datetime
 
-from sqlalchemy import Column, Boolean, DateTime, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String, Text
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -85,7 +85,7 @@ class ActivityEventModel(Base):
     resource_type = Column(String(50), nullable=True)
     resource_name = Column(String(255), nullable=True)
     event_time = Column(DateTime, nullable=False)
-    details = Column(Text, nullable=True)
+    details = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
