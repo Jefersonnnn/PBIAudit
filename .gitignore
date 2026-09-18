@@ -142,3 +142,4 @@ dmypy.json
 # Secrets
 .env.local
 secrets/
+gerencias.csv
