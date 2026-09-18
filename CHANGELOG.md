@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   against real Postgres - SQLite's dynamic typing let it slide in the unit tests.
 
 ### Changed
+- `export-report`'s HTML drill-down now has a gerência (management unit) level above department:
+  Azure AD's `department` field encodes it as a leading numeric code (e.g. `"034 CEM Coordenação
+  Eletromecânica"` -> gerência `034`), so departments sharing that code are grouped and rolled up
+  together. Departments without a leading code fall under "Sem gerência".
 - `sync-licenses`/`license-report`/`department-report` now track only Power BI Pro
   (`BI_AZURE_P1`/`BI_AZURE_P2`) instead of every Power BI-related plan. Power BI (Free) doesn't
   consume a seat from the tenant's fixed pool, and Premium/Premium Per User are licensed

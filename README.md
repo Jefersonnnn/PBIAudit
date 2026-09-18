@@ -203,10 +203,13 @@ scrolling through every individual row. Requires the same syncs as `license-repo
 poetry run pbi-governance export-report --output relatorio.html --inactive-days 30
 ```
 Renders the same data as `license-report`/`department-report` into a single self-contained HTML
-file (no external assets, no JavaScript) — departments listed first, each expandable to its users,
-each user expandable to the dashboards/reports they accessed, using native `<details>` drill-down.
-Meant to be opened locally or emailed/shared as-is. `--output` defaults to
-`license_report_<timestamp>.html` in the current directory. Requires the same syncs as
+file (no external assets, no JavaScript), using native `<details>` drill-down:
+**gerência → departamento → usuário → dashboards acessados**. The gerência (management unit) is
+parsed from the leading numeric code Azure AD puts on the `department` field — e.g.
+`"034 CEM Coordenação Eletromecânica"` becomes gerência `034`, department `CEM Coordenação
+Eletromecânica`; a department with no leading code falls under "Sem gerência". Meant to be opened
+locally or emailed/shared as-is. `--output` defaults to `license_report_<timestamp>.html` in the
+current directory. Requires the same syncs as
 `license-report`.
 
 **Required Azure AD app permissions (application/admin-consent, not delegated):**

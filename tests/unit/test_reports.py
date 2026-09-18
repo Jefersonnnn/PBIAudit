@@ -90,3 +90,56 @@ class TestRenderLicenseUsageReport:
         empty_html = render_license_usage_report([], [], inactive_days=30)
         assert "Nenhuma licença encontrada." in empty_html
         assert "<!DOCTYPE html>" in empty_html
+
+    def test_groups_departments_under_their_gerencia_code(self):
+        """'034 CEM Coordenação Eletromecânica' -> Gerência 034 > department label without the code."""
+        rows = [
+            _row(
+                display_name="Ana Souza",
+                email="ana@example.com",
+                department="034 CEM Coordenação Eletromecânica",
+            ),
+            _row(
+                display_name="Bruno Lima",
+                email="bruno@example.com",
+                department="034 CEM Manutenção Mecânica",
+            ),
+        ]
+        summaries = [
+            DepartmentUsageSummary(
+                department="034 CEM Coordenação Eletromecânica",
+                total_licenses=1,
+                active_count=0,
+                idle_count=1,
+                never_used_count=1,
+            ),
+            DepartmentUsageSummary(
+                department="034 CEM Manutenção Mecânica",
+                total_licenses=1,
+                active_count=0,
+                idle_count=1,
+                never_used_count=1,
+            ),
+        ]
+
+        html = render_license_usage_report(rows, summaries, inactive_days=30)
+
+        assert "Gerência 034" in html
+        assert "CEM Coordenação Eletromecânica" in html
+        assert "CEM Manutenção Mecânica" in html
+        # the gerência header aggregates both departments under it
+        assert html.index("Gerência 034") < html.index("CEM Coordenação Eletromecânica")
+        assert "2 licença(s)" in html  # gerência-level total across both departments
+
+    def test_department_without_a_leading_code_falls_back_to_sem_gerencia(self):
+        rows = [_row(department="Financeiro")]
+        summaries = [
+            DepartmentUsageSummary(
+                department="Financeiro", total_licenses=1, active_count=0, idle_count=1, never_used_count=1
+            )
+        ]
+
+        html = render_license_usage_report(rows, summaries, inactive_days=30)
+
+        assert "Sem gerência" in html
+        assert "Financeiro" in html
