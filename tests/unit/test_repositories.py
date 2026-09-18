@@ -191,6 +191,17 @@ class TestUserRepository:
         assert repository.get_by_email("renamed@example.com").job_title == "Analista de Dados"
         assert repository.get_by_email("renamed@example.com").department == "TI"
 
+    def test_get_department_counts_ignores_empty_departments(self, db_session: Session) -> None:
+        """Counts users per department, skipping users with a missing or empty department."""
+        repository = UserRepository(db_session)
+        repository.create(User(user_id="u1", email="a@example.com", display_name="A", department="034 GMS Gerente"))
+        repository.create(User(user_id="u2", email="b@example.com", display_name="B", department="034 GMS Gerente"))
+        repository.create(User(user_id="u3", email="c@example.com", display_name="C", department="026 CIN"))
+        repository.create(User(user_id="u4", email="d@example.com", display_name="D", department=""))
+        repository.create(User(user_id="u5", email="e@example.com", display_name="E"))
+
+        assert repository.get_department_counts() == {"034 GMS Gerente": 2, "026 CIN": 1}
+
 
 @pytest.mark.unit
 class TestLicenseAssignmentRepository:

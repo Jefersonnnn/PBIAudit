@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Any, Generic, TypeVar, List
 from uuid import uuid4
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from powerbi_governance.infrastructure.database.models import (
@@ -194,6 +194,15 @@ class UserRepository(BaseRepository[UserModel]):
             )
         )
         return list(self.session.scalars(statement).all())
+
+    def get_department_counts(self) -> dict[str, int]:
+        """Count users per non-empty department value."""
+        statement = (
+            select(UserModel.department, func.count())
+            .where(UserModel.department.is_not(None), UserModel.department != "")
+            .group_by(UserModel.department)
+        )
+        return {department: count for department, count in self.session.execute(statement).all()}
 
 
 class UsageMetricRepository(BaseRepository[UsageMetricModel]):

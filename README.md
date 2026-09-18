@@ -212,6 +212,19 @@ locally or emailed/shared as-is. `--output` defaults to `license_report_<timesta
 current directory. Requires the same syncs as
 `license-report`.
 
+**Gerência names.** Nothing in Microsoft 365 maps a code like `034` to a name (Graph's
+`employeeOrgData.division`/`costCenter` are empty in this tenant), so the names come from a CSV you
+maintain:
+```bash
+poetry run pbi-governance init-gerencias      # writes ./gerencias.csv from the synced users
+```
+Fill in the `nome` column and re-run `export-report` — it picks up `./gerencias.csv` automatically
+(or pass `--gerencias-file`). The file has the columns `codigo;nome;apelidos`; `dica` (the
+gerência manager's acronym) and `usuarios` are only there to help you fill it in. `apelidos` is an
+optional `|`-separated list of department values that have no leading code but belong to that
+gerência, e.g. `GTI|TI|Tecnologia da Informação` under `026`. Codes without a name still show just
+the number. Run `sync-licenses` first, since it is what stores each user's department.
+
 **Required Azure AD app permissions (application/admin-consent, not delegated):**
 - `User.Read.All` — list users and their assigned license plans
 - `Organization.Read.All` — resolve license SKU/service-plan names

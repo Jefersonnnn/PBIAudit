@@ -33,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   columns.
 
 ### Added
+- Gerência names in the `export-report` HTML: `init-gerencias` writes a `gerencias.csv` template
+  (one row per gerência code found in the synced users, with the manager's acronym as a hint), and
+  `export-report` reads it (`--gerencias-file`, default `./gerencias.csv`) to show
+  "Gerência 034 · <name>". An optional `apelidos` column groups departments that carry no leading
+  code (e.g. `GTI`) under the right gerência. Microsoft Graph has no source for these names
+  (`employeeOrgData.division`/`costCenter` are empty in this tenant), hence the CSV.
+- `UserRepository.get_department_counts()`.
 - `export-report` CLI command: renders the license usage audit as a single self-contained HTML
   file (no external assets/JS) with a department → user → dashboard drill-down, using native
   `<details>` elements. Initial version, to be refined iteratively.

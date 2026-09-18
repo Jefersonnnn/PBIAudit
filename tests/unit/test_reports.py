@@ -6,6 +6,7 @@ import pytest
 
 from powerbi_governance.application.services import DepartmentUsageSummary, LicenseUsageRow
 from powerbi_governance.interfaces.reports import render_license_usage_report
+from powerbi_governance.interfaces.reports.gerencias import GerenciaMapping
 
 
 def _row(**overrides) -> LicenseUsageRow:
@@ -130,6 +131,44 @@ class TestRenderLicenseUsageReport:
         # the gerência header aggregates both departments under it
         assert html.index("Gerência 034") < html.index("CEM Coordenação Eletromecânica")
         assert "2 licença(s)" in html  # gerência-level total across both departments
+
+    def test_shows_gerencia_names_and_groups_aliased_departments_when_a_mapping_is_given(self):
+        rows = [
+            _row(display_name="Ana Souza", department="026 CIN Coordenação de Infraestrutura de TI"),
+            _row(display_name="Bruno Lima", email="bruno@example.com", department="GTI"),
+        ]
+        summaries = [
+            DepartmentUsageSummary("026 CIN Coordenação de Infraestrutura de TI", 1, 0, 1, 1),
+            DepartmentUsageSummary("GTI", 1, 0, 1, 1),
+        ]
+        mapping = GerenciaMapping(names={"026": "Gerência de TI"}, aliases={"gti": "026"})
+
+        html = render_license_usage_report(rows, summaries, inactive_days=30, gerencia_mapping=mapping)
+
+        assert "026 · Gerência de TI" in html
+        assert "Gerência 026 · Gerência" not in html  # the name already says "Gerência", so it isn't repeated
+        assert "Sem gerência" not in html  # the aliased "GTI" joined gerência 026
+        assert html.count('<details class="gerencia"') == 1
+        assert "2 licença(s)" in html
+
+    def test_gerencia_name_not_starting_with_gerencia_is_prefixed_with_it(self):
+        rows = [_row(department="034 CEM Coordenação")]
+        summaries = [DepartmentUsageSummary("034 CEM Coordenação", 1, 0, 1, 1)]
+        mapping = GerenciaMapping(names={"034": "Manutenção"})
+
+        html = render_license_usage_report(rows, summaries, inactive_days=30, gerencia_mapping=mapping)
+
+        assert "Gerência 034 · Manutenção" in html
+
+    def test_gerencia_without_a_name_in_the_mapping_shows_only_its_code(self):
+        rows = [_row(department="034 CEM Coordenação")]
+        summaries = [DepartmentUsageSummary("034 CEM Coordenação", 1, 0, 1, 1)]
+        mapping = GerenciaMapping(names={"026": "Gerência de TI"})
+
+        html = render_license_usage_report(rows, summaries, inactive_days=30, gerencia_mapping=mapping)
+
+        assert "Gerência 034<" in html
+        assert "·" not in html.split("<main>")[1]
 
     def test_department_without_a_leading_code_falls_back_to_sem_gerencia(self):
         rows = [_row(department="Financeiro")]

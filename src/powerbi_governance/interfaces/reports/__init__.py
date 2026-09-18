@@ -9,20 +9,14 @@ gerência -> department -> user -> dashboard drill-down, using native
 from __future__ import annotations
 
 import html as html_module
-import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Iterable, Optional
 
 from powerbi_governance.application.services import DepartmentUsageSummary, LicenseUsageRow
+from powerbi_governance.interfaces.reports.gerencias import UNKNOWN_GERENCIA, GerenciaMapping
 
 _UNKNOWN_DEPARTMENT = "Sem departamento"
-_UNKNOWN_GERENCIA = "Sem gerência"
-
-# Azure AD's `department` field encodes the gerência (management unit) as a
-# leading numeric code, e.g. "034 CEM Coordenação Eletromecânica" -> gerência
-# "034", department label "CEM Coordenação Eletromecânica".
-_GERENCIA_CODE_PATTERN = re.compile(r"^(\d{2,})\s+(.+)$")
 
 
 @dataclass
@@ -30,6 +24,7 @@ class _GerenciaGroup:
     """One gerência (management unit), aggregated from the departments under it."""
 
     code: str
+    name: Optional[str] = None
     departments: list[DepartmentUsageSummary] = field(default_factory=list)
 
     @property
@@ -54,24 +49,24 @@ class _GerenciaGroup:
 
     @property
     def label(self) -> str:
-        return self.code if self.code == _UNKNOWN_GERENCIA else f"Gerência {self.code}"
+        if self.code == UNKNOWN_GERENCIA:
+            return self.code
+        if not self.name:
+            return f"Gerência {self.code}"
+        if self.name.casefold().startswith(("gerência", "gerencia")):
+            return f"{self.code} · {self.name}"
+        return f"Gerência {self.code} · {self.name}"
 
 
-def _split_gerencia_and_department(raw_department: str) -> tuple[str, str]:
-    """Split a raw department string into (gerência code, department label)."""
-    match = _GERENCIA_CODE_PATTERN.match(raw_department.strip())
-    if not match:
-        return _UNKNOWN_GERENCIA, raw_department
-    code, label = match.groups()
-    return code, label.strip() or raw_department
-
-
-def _group_by_gerencia(department_summaries: list[DepartmentUsageSummary]) -> list[_GerenciaGroup]:
-    """Group department summaries by their parsed gerência code."""
+def _group_by_gerencia(
+    department_summaries: list[DepartmentUsageSummary], mapping: GerenciaMapping
+) -> list[_GerenciaGroup]:
+    """Group department summaries by their gerência code (parsed, or via a mapping alias)."""
     groups: dict[str, _GerenciaGroup] = {}
     for summary in department_summaries:
-        code, _ = _split_gerencia_and_department(summary.department)
-        groups.setdefault(code, _GerenciaGroup(code=code)).departments.append(summary)
+        code, _ = mapping.split(summary.department)
+        group = groups.setdefault(code, _GerenciaGroup(code=code, name=mapping.name_for(code)))
+        group.departments.append(summary)
 
     for group in groups.values():
         group.departments.sort(key=lambda d: (d.idle_percentage, d.total_licenses), reverse=True)
@@ -130,10 +125,13 @@ def _render_user(row: LicenseUsageRow, inactive_days: int) -> str:
 
 
 def _render_department(
-    summary: DepartmentUsageSummary, rows: list[LicenseUsageRow], inactive_days: int
+    summary: DepartmentUsageSummary,
+    rows: list[LicenseUsageRow],
+    inactive_days: int,
+    mapping: GerenciaMapping,
 ) -> str:
     """Render one drill-down <details> block for a department and its users."""
-    _, label = _split_gerencia_and_department(summary.department)
+    _, label = mapping.split(summary.department)
     sorted_rows = sorted(
         rows, key=lambda row: (row.days_since_access is None, row.days_since_access or 0), reverse=True
     )
@@ -160,11 +158,14 @@ def _render_department(
 
 
 def _render_gerencia(
-    group: _GerenciaGroup, rows_by_department: dict[str, list[LicenseUsageRow]], inactive_days: int
+    group: _GerenciaGroup,
+    rows_by_department: dict[str, list[LicenseUsageRow]],
+    inactive_days: int,
+    mapping: GerenciaMapping,
 ) -> str:
     """Render one drill-down <details> block for a gerência and its departments."""
     departments_html = "".join(
-        _render_department(summary, rows_by_department.get(summary.department, []), inactive_days)
+        _render_department(summary, rows_by_department.get(summary.department, []), inactive_days, mapping)
         for summary in group.departments
     )
 
@@ -194,6 +195,7 @@ def render_license_usage_report(
     *,
     inactive_days: int,
     generated_at: Optional[datetime] = None,
+    gerencia_mapping: Optional[GerenciaMapping] = None,
 ) -> str:
     """
     Render a standalone HTML license usage audit report.
@@ -212,6 +214,9 @@ def render_license_usage_report(
         inactive_days: Days without activity before a license is flagged as idle
         generated_at: Timestamp to display as the report's generation time
             (defaults to now)
+        gerencia_mapping: Optional gerência names (and aliases for departments
+            with no leading code), loaded from gerencias.csv. Without it,
+            gerências show only their numeric code.
 
     Returns:
         A complete, self-contained HTML document (no external assets)
@@ -229,9 +234,10 @@ def render_license_usage_report(
     total_idle = sum(summary.idle_count for summary in department_summaries)
     total_never_used = sum(summary.never_used_count for summary in department_summaries)
 
-    gerencia_groups = _group_by_gerencia(department_summaries)
+    mapping = gerencia_mapping or GerenciaMapping()
+    gerencia_groups = _group_by_gerencia(department_summaries, mapping)
     gerencias_html = "".join(
-        _render_gerencia(group, rows_by_department, inactive_days) for group in gerencia_groups
+        _render_gerencia(group, rows_by_department, inactive_days, mapping) for group in gerencia_groups
     )
 
     if not department_summaries:

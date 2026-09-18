@@ -38,6 +38,14 @@ from powerbi_governance.infrastructure.repositories import (
     WorkspaceRepository,
 )
 from powerbi_governance.interfaces.reports import render_license_usage_report
+from powerbi_governance.interfaces.reports.gerencias import (
+    GerenciaMapping,
+    build_gerencia_template_rows,
+    load_gerencia_mapping,
+    write_gerencia_template,
+)
+
+DEFAULT_GERENCIAS_FILE = "gerencias.csv"
 
 log = structlog.get_logger(__name__)
 console = Console()
@@ -379,14 +387,18 @@ def export_report(
     inactive_days: Annotated[
         int, typer.Option(help="Days without activity before a license is flagged as idle")
     ] = 30,
+    gerencias_file: Annotated[
+        str,
+        typer.Option(help="CSV with gerência names (see 'init-gerencias'); defaults to ./gerencias.csv if present"),
+    ] = "",
 ) -> None:
     """
     Export the license usage audit as a standalone HTML file.
 
-    Departments are listed first, each expandable to its users, each user
-    expandable to the dashboards they accessed. Reads from the local database,
-    so run 'sync-licenses' and 'sync-activity-events' first (or on a schedule)
-    to keep it current.
+    Gerências are listed first, each expandable to its departments, then users,
+    then the dashboards they accessed. Reads from the local database, so run
+    'sync-licenses' and 'sync-activity-events' first (or on a schedule) to keep
+    it current.
     """
     console.print("[bold blue]📄 Exporting HTML report...[/bold blue]")
 
@@ -405,8 +417,23 @@ def export_report(
             )
             return
 
+        gerencia_mapping = GerenciaMapping()
+        mapping_path = Path(gerencias_file or DEFAULT_GERENCIAS_FILE)
+        if mapping_path.exists():
+            gerencia_mapping = load_gerencia_mapping(mapping_path)
+            console.print(f"[dim]Nomes das gerências carregados de {mapping_path}[/dim]")
+        elif gerencias_file:
+            raise FileNotFoundError(f"Gerências file not found: {mapping_path}")
+        else:
+            console.print(
+                f"[dim]Sem {DEFAULT_GERENCIAS_FILE}: as gerências aparecem só com o código. "
+                "Rode 'init-gerencias' para gerar um modelo.[/dim]"
+            )
+
         summaries = license_service.summarize_by_department(rows, inactive_days=inactive_days)
-        report_html = render_license_usage_report(rows, summaries, inactive_days=inactive_days)
+        report_html = render_license_usage_report(
+            rows, summaries, inactive_days=inactive_days, gerencia_mapping=gerencia_mapping
+        )
 
         output_path = Path(output) if output else Path(f"license_report_{datetime.now():%Y%m%d_%H%M%S}.html")
         output_path.write_text(report_html, encoding="utf-8")
@@ -419,6 +446,61 @@ def export_report(
     finally:
         if context:
             context.close()
+
+
+@app.command()
+def init_gerencias(
+    output: Annotated[str, typer.Option(help="CSV file to create")] = DEFAULT_GERENCIAS_FILE,
+    force: Annotated[bool, typer.Option(help="Overwrite the file if it already exists")] = False,
+) -> None:
+    """
+    Generate a gerencias.csv template with every gerência code found in the synced users.
+
+    Fill in the 'nome' column (and optionally 'apelidos' for departments that have no
+    leading code) and 'export-report' will show the names. Run 'sync-licenses' first,
+    since it is what populates each user's department.
+    """
+    console.print("[bold blue]🗂️  Generating gerências template...[/bold blue]")
+
+    database_manager: DatabaseManager | None = None
+    session: Session | None = None
+    try:
+        output_path = Path(output)
+        if output_path.exists() and not force:
+            raise FileExistsError(f"{output_path} already exists - use --force to overwrite it")
+
+        settings = get_settings()
+        configure_logging(settings)
+        database_manager = DatabaseManager(settings)
+        database_manager.initialize()
+        session = database_manager.get_session()
+
+        department_counts = UserRepository(session).get_department_counts()
+        if not department_counts:
+            console.print("[yellow]No user departments found. Run 'sync-licenses' first.[/yellow]")
+            return
+
+        rows, without_code = build_gerencia_template_rows(department_counts)
+        write_gerencia_template(output_path, rows)
+
+        console.print(f"[green]✓ Template with {len(rows)} gerência code(s) written to {output_path.resolve()}[/green]")
+        if without_code:
+            console.print(
+                f"[dim]{len(without_code)} department value(s) have no leading code and fall under "
+                "'Sem gerência' - list them in the 'apelidos' column of the right gerência "
+                "(separated by |) to group them:[/dim]"
+            )
+            for department in without_code:
+                console.print(f"[dim]  - {department}[/dim]", highlight=False)
+
+    except Exception as e:
+        console.print(f"[red]✗ Error: {e!s}[/red]")
+        raise typer.Exit(code=1) from e
+    finally:
+        if session:
+            session.close()
+        if database_manager:
+            database_manager.close()
 
 
 @app.command()
@@ -551,12 +633,21 @@ def _run_interactive_menu() -> None:
         ),
         _MenuAction(
             "6",
+            "Gerar modelo de nomes das gerências",
+            "Cria o gerencias.csv com os códigos encontrados, para preencher os nomes",
+            lambda: init_gerencias(
+                DEFAULT_GERENCIAS_FILE,
+                Prompt.ask("Sobrescrever se já existir?", choices=["s", "n"], default="n") == "s",
+            ),
+        ),
+        _MenuAction(
+            "7",
             "Sincronizar workspaces",
             "Descobre e atualiza os workspaces do Power BI",
             sync_workspaces,
         ),
         _MenuAction(
-            "7",
+            "8",
             "Listar workspaces",
             "Lista os workspaces do Power BI direto da API",
             lambda: list_workspaces(
@@ -564,13 +655,13 @@ def _run_interactive_menu() -> None:
             ),
         ),
         _MenuAction(
-            "8",
+            "9",
             "Verificar saúde da configuração",
             "Confere se as credenciais e o banco estão OK",
             health_check,
         ),
         _MenuAction(
-            "9",
+            "10",
             "Ver configuração atual",
             "Mostra environment, banco (mascarado) e endpoints",
             show_config,
