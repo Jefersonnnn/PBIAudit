@@ -152,7 +152,11 @@ class TestActivityEventsService:
 
         assert count == 2
         assert powerbi_client.get_activity_events.await_count == 2
-        assert all("ActivityDateTime ge datetime" in call.args[0] for call in powerbi_client.get_activity_events.await_args_list)
+        for call in powerbi_client.get_activity_events.await_args_list:
+            start = call.kwargs["start_date_time"]
+            end = call.kwargs["end_date_time"]
+            assert start[:10] == end[:10]  # same UTC calendar day, per the API's requirement
+            assert start.endswith("Z") and end.endswith("Z")
         assert len(repository.entities) == 2
         event = repository.entities[0]
         assert isinstance(event, ActivityEvent)
@@ -161,9 +165,36 @@ class TestActivityEventsService:
         assert event.activity == "ViewReport"
         assert event.resource_id == "report-1"
 
+    async def test_sync_activity_events_follows_continuation_token_for_same_day(self):
+        powerbi_client = AsyncMock()
+        powerbi_client.get_activity_events.side_effect = [
+            {
+                "activityEventEntities": [{"Id": "event-1", "UserId": "a@example.com", "CreationTime": "2026-06-02T01:00:00Z"}],
+                "continuationUri": "https://api.powerbi.com/v1.0/myorg/admin/activityevents?continuationToken=abc",
+            },
+            {
+                "activityEventEntities": [{"Id": "event-2", "UserId": "b@example.com", "CreationTime": "2026-06-02T02:00:00Z"}],
+            },
+        ]
+        repository = UpsertRepository()
+
+        count = await ActivityEventsService(powerbi_client, repository).sync_activity_events(days_back=1)
+
+        assert count == 2
+        assert powerbi_client.get_activity_events.await_count == 2
+        first_call, second_call = powerbi_client.get_activity_events.await_args_list
+        assert "start_date_time" in first_call.kwargs
+        assert second_call.kwargs.get("continuation_uri") == (
+            "https://api.powerbi.com/v1.0/myorg/admin/activityevents?continuationToken=abc"
+        )
+
     async def test_sync_activity_events_rejects_invalid_days_back(self):
         with pytest.raises(RuntimeError, match="days_back must be at least 1"):
             await ActivityEventsService(AsyncMock(), UpsertRepository()).sync_activity_events(days_back=0)
+
+    async def test_sync_activity_events_rejects_days_back_beyond_28_day_retention(self):
+        with pytest.raises(RuntimeError, match="days_back cannot exceed 28"):
+            await ActivityEventsService(AsyncMock(), UpsertRepository()).sync_activity_events(days_back=29)
 
 
 @pytest.mark.unit

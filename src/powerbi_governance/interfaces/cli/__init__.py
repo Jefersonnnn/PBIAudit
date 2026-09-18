@@ -171,7 +171,7 @@ def sync_usage_metrics() -> None:
 
 @app.command()
 def sync_activity_events(
-    days_back: Annotated[int, typer.Argument(help="Number of days to look back")] = 1,
+    days_back: Annotated[int, typer.Argument(help="Number of days to look back (max 28)")] = 1,
 ) -> None:
     """Synchronize activity events from audit logs"""
     console.print(f"[bold blue]📋 Syncing activity events ({days_back} days)...[/bold blue]")

@@ -150,9 +150,10 @@ Collects usage metrics for all reports.
 
 #### Sync Activity Events
 ```bash
-poetry run pbi-governance sync-activity-events --days-back 7
+poetry run pbi-governance sync-activity-events 7
 ```
-Collects activity events from the past 7 days.
+Collects activity events from the past 7 days (max 28 - the Power BI Admin API only retains
+28 days of activity history, and requires querying one UTC calendar day at a time).
 
 #### List Workspaces
 ```bash
@@ -176,7 +177,7 @@ from Microsoft Graph and stores a fresh point-in-time snapshot.
 #### License Usage Audit
 ```bash
 poetry run pbi-governance sync-licenses
-poetry run pbi-governance sync-activity-events 30
+poetry run pbi-governance sync-activity-events 28
 poetry run pbi-governance license-report --inactive-days 30
 ```
 `license-report` reads the local database (populated by `sync-licenses` and

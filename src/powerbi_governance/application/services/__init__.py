@@ -55,6 +55,11 @@ def _items_from_response(response: Any, *keys: str) -> list[Any]:
     return []
 
 
+def _format_activity_event_datetime(value: datetime) -> str:
+    """Format a UTC datetime for the Power BI activityevents startDateTime/endDateTime params."""
+    return value.strftime("%Y-%m-%dT%H:%M:%S.") + f"{value.microsecond // 1000:03d}Z"
+
+
 def _first_present(data: Mapping[str, Any], *keys: str, default: Any = None) -> Any:
     """Return the first non-empty value for any of the provided API field aliases."""
     for key in keys:
@@ -326,8 +331,12 @@ class ActivityEventsService:
         """
         Synchronize activity events from audit logs.
 
+        Queries one full UTC calendar day at a time (rather than a rolling 24h
+        window), since the Power BI Admin API requires startDateTime/endDateTime
+        to fall on the same UTC day and only retains 28 days of history.
+
         Args:
-            days_back: Number of days to collect events for
+            days_back: Number of days to collect events for (max 28)
 
         Returns:
             Number of events synchronized
@@ -337,34 +346,51 @@ class ActivityEventsService:
         try:
             if days_back < 1:
                 raise ValueError("days_back must be at least 1")
+            if days_back > 28:
+                raise ValueError(
+                    "days_back cannot exceed 28 - the Power BI Admin API only retains "
+                    "28 days of activity events"
+                )
 
             events_count = 0
-            end = datetime.now(UTC)
+            today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
             for day_offset in range(days_back):
-                window_end = end - timedelta(days=day_offset)
-                window_start = window_end - timedelta(days=1)
-                filter_expression = (
-                    f"ActivityDateTime ge datetime'{window_start.isoformat()}' "
-                    f"and ActivityDateTime lt datetime'{window_end.isoformat()}'"
-                )
-                events_payload = await self.powerbi_client.get_activity_events(filter_expression)
-                raw_events = _items_from_response(events_payload)
+                day_start = today - timedelta(days=day_offset)
+                day_end = day_start + timedelta(days=1, milliseconds=-1)
 
                 window_count = 0
-                for raw_event in raw_events:
-                    event = self._normalize_activity_event(raw_event)
-                    if event is None:
-                        continue
-                    await _persist_entity(self.repository, event, event.event_id)
-                    events_count += 1
-                    window_count += 1
+                continuation_uri: Optional[str] = None
+                while True:
+                    if continuation_uri:
+                        events_payload = await self.powerbi_client.get_activity_events(
+                            continuation_uri=continuation_uri
+                        )
+                    else:
+                        events_payload = await self.powerbi_client.get_activity_events(
+                            start_date_time=_format_activity_event_datetime(day_start),
+                            end_date_time=_format_activity_event_datetime(day_end),
+                        )
+
+                    raw_events = _items_from_response(events_payload)
+                    for raw_event in raw_events:
+                        event = self._normalize_activity_event(raw_event)
+                        if event is None:
+                            continue
+                        await _persist_entity(self.repository, event, event.event_id)
+                        events_count += 1
+                        window_count += 1
+
+                    continuation_uri = (
+                        events_payload.get("continuationUri") if isinstance(events_payload, Mapping) else None
+                    )
+                    if not continuation_uri:
+                        break
 
                 log.info(
                     "Activity events window synchronized",
-                    window_start=window_start.isoformat(),
-                    window_end=window_end.isoformat(),
-                    fetched_count=len(raw_events),
+                    window_start=day_start.isoformat(),
+                    window_end=day_end.isoformat(),
                     synchronized_count=window_count,
                 )
 

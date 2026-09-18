@@ -140,23 +140,52 @@ class PowerBIClient:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
     )
-    async def get_activity_events(self, filter_expression: str) -> dict:
+    async def get_activity_events(
+        self,
+        start_date_time: Optional[str] = None,
+        end_date_time: Optional[str] = None,
+        continuation_uri: Optional[str] = None,
+        filter_expression: Optional[str] = None,
+    ) -> dict:
         """
         Get activity events (Admin API required).
-        
+
+        Per the Power BI REST API contract, provide either `continuation_uri` (to
+        fetch the next page of a previous request) or both `start_date_time` and
+        `end_date_time`, which must fall on the same UTC calendar day and within
+        the last 28 days. There is no `$filter` support for dates - only for
+        `Activity`/`UserId` equality.
+
         Args:
-            filter_expression: OData filter expression
-            
+            start_date_time: ISO 8601 UTC start of the window, e.g. "2026-09-01T00:00:00.000Z"
+            end_date_time: ISO 8601 UTC end of the window, same UTC day as start_date_time
+            continuation_uri: Full URL from a previous response's `continuationUri`,
+                used to fetch the next page of the same day's results
+            filter_expression: Optional OData filter, e.g. "Activity eq 'ViewReport'"
+
         Returns:
             API response with activity events
         """
-        log.info("Fetching activity events", filter=filter_expression)
-
-        url = f"{self.base_url}/admin/activityevents"
-        params = {"$filter": filter_expression}
+        log.info(
+            "Fetching activity events",
+            start=start_date_time,
+            end=end_date_time,
+            paginated=bool(continuation_uri),
+        )
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(url, headers=self._get_headers(), params=params)
+            if continuation_uri:
+                response = await client.get(continuation_uri, headers=self._get_headers())
+            else:
+                url = f"{self.base_url}/admin/activityevents"
+                params = {
+                    "startDateTime": f"'{start_date_time}'",
+                    "endDateTime": f"'{end_date_time}'",
+                }
+                if filter_expression:
+                    params["$filter"] = filter_expression
+                response = await client.get(url, headers=self._get_headers(), params=params)
+
             response.raise_for_status()
             return response.json()
 
