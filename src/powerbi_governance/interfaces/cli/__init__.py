@@ -12,6 +12,7 @@ from typing import Annotated, Any, TypeVar
 import structlog
 import typer
 from rich.console import Console
+from rich.prompt import IntPrompt, Prompt
 from rich.table import Table
 from sqlalchemy.orm import Session
 
@@ -43,6 +44,13 @@ app = typer.Typer(
     name="pbi-governance",
     help="Power BI Governance Platform - Automated audit and analytics",
 )
+
+
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context) -> None:
+    """Power BI Governance Platform - Automated audit and analytics"""
+    if ctx.invoked_subcommand is None:
+        _run_interactive_menu()
 
 
 @dataclass
@@ -367,6 +375,97 @@ def show_config() -> None:
     console.print(f"  Database: {mask_database_url(settings.database_url)}")
     console.print(f"  Log Level: {settings.log_level}")
     console.print(f"  Power BI API: {settings.powerbi_api_base_url}")
+
+
+@dataclass
+class _MenuAction:
+    """One selectable entry in the interactive menu."""
+
+    key: str
+    label: str
+    description: str
+    run: Any
+
+
+def _run_interactive_menu() -> None:
+    """Show a numbered menu of commands so users don't have to remember/type them."""
+    actions = [
+        _MenuAction(
+            "1",
+            "Sincronizar licenças",
+            "Busca no Microsoft Graph quem tem licença Power BI",
+            sync_licenses,
+        ),
+        _MenuAction(
+            "2",
+            "Sincronizar eventos de atividade",
+            "Busca no Power BI quem acessou o quê (máx. 28 dias)",
+            lambda: sync_activity_events(
+                IntPrompt.ask("Quantos dias sincronizar? (máx. 28)", default=7)
+            ),
+        ),
+        _MenuAction(
+            "3",
+            "Relatório de uso de licenças",
+            "Cruza licenças com atividade e aponta quem está ocioso",
+            lambda: license_report(
+                IntPrompt.ask("Considerar ociosa após quantos dias sem acesso?", default=30)
+            ),
+        ),
+        _MenuAction(
+            "4",
+            "Sincronizar workspaces",
+            "Descobre e atualiza os workspaces do Power BI",
+            sync_workspaces,
+        ),
+        _MenuAction(
+            "5",
+            "Listar workspaces",
+            "Lista os workspaces do Power BI direto da API",
+            lambda: list_workspaces(
+                0, IntPrompt.ask("Mostrar quantos workspaces?", default=10)
+            ),
+        ),
+        _MenuAction(
+            "6",
+            "Verificar saúde da configuração",
+            "Confere se as credenciais e o banco estão OK",
+            health_check,
+        ),
+        _MenuAction(
+            "7",
+            "Ver configuração atual",
+            "Mostra environment, banco (mascarado) e endpoints",
+            show_config,
+        ),
+    ]
+    choices = [action.key for action in actions] + ["0"]
+
+    while True:
+        console.print()
+        console.print("[bold blue]Power BI Governance — Auditoria de Licenças[/bold blue]")
+        console.print()
+
+        menu = Table(show_header=False, box=None, padding=(0, 1))
+        for action in actions:
+            menu.add_row(f"[bold cyan]{action.key}[/bold cyan]", action.label, f"[dim]{action.description}[/dim]")
+        menu.add_row("[bold cyan]0[/bold cyan]", "Sair", "")
+        console.print(menu)
+        console.print()
+
+        choice = Prompt.ask("Escolha uma opção", choices=choices, default="0", show_choices=False)
+        if choice == "0":
+            break
+
+        console.print()
+        selected = next(action for action in actions if action.key == choice)
+        try:
+            selected.run()
+        except typer.Exit:
+            pass  # the command already printed its own error; return to the menu
+
+        console.print()
+        console.rule(style="dim")
 
 
 if __name__ == "__main__":
