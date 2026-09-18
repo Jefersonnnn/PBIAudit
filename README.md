@@ -171,8 +171,10 @@ Verifies platform health and connectivity.
 ```bash
 poetry run pbi-governance sync-licenses
 ```
-Reads every Azure AD user's Power BI-related Microsoft 365 licenses (Pro, Premium Per User, Free)
-from Microsoft Graph and stores a fresh point-in-time snapshot.
+Reads every Azure AD user's Power BI Pro license from Microsoft Graph and stores a fresh
+point-in-time snapshot. Only Power BI Pro is tracked, since it's the paid license drawn from the
+tenant's fixed seat pool — Power BI (Free) doesn't consume a seat, and Premium/Premium Per User are
+licensed and managed separately.
 
 #### License Usage Audit
 ```bash
@@ -186,6 +188,15 @@ show, per user: name, email, job title/department (from Azure AD), license type,
 which dashboards/reports they used, and whether the license looks idle or was never used — the
 report you'd use to reclaim unused seats out of a fixed license pool. Run the two sync commands
 first (or on a schedule) to keep it current.
+
+#### License Usage by Department
+```bash
+poetry run pbi-governance department-report --inactive-days 30
+```
+Same underlying data as `license-report`, aggregated per department (from Azure AD) instead of per
+user: total licenses, active, idle and never-used counts, and idle percentage — sorted with the
+most idle department first. Useful for spotting which team is holding onto unused seats without
+scrolling through every individual row. Requires the same syncs as `license-report`.
 
 **Required Azure AD app permissions (application/admin-consent, not delegated):**
 - `User.Read.All` — list users and their assigned license plans
@@ -255,8 +266,7 @@ workspace_count = await service.sync_workspaces()
 - **usage_metrics** - Historical per-report view counts, synced via `sync-usage-metrics`
 - **activity_events** - Who accessed which report/dashboard and when, synced via
   `sync-activity-events`
-- **license_assignments** - Power BI license snapshot (Pro/Premium Per User/Free), synced via
-  `sync-licenses`
+- **license_assignments** - Power BI Pro license snapshot, synced via `sync-licenses`
 
 ## Configuration
 

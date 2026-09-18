@@ -276,13 +276,15 @@ class TestUserService:
 
 @pytest.mark.unit
 class TestLicenseService:
-    async def test_sync_license_assignments_filters_to_power_bi_plans_and_dedupes(self):
+    async def test_sync_license_assignments_filters_to_pro_plans_and_dedupes(self):
         graph_client = AsyncMock()
         graph_client.get_subscribed_skus.return_value = {
             "value": [
                 {
                     "servicePlans": [
                         {"servicePlanId": "plan-pro", "servicePlanName": "BI_AZURE_P2"},
+                        {"servicePlanId": "plan-free", "servicePlanName": "BI_AZURE_P0"},
+                        {"servicePlanId": "plan-ppu", "servicePlanName": "PBI_PREMIUM_PER_USER"},
                         {"servicePlanId": "plan-exchange", "servicePlanName": "EXCHANGE_S_STANDARD"},
                     ]
                 }
@@ -310,12 +312,28 @@ class TestLicenseService:
                 "accountEnabled": True,
                 "assignedPlans": [{"capabilityStatus": "Enabled", "servicePlanId": "plan-exchange"}],
             },
+            {
+                "id": "user-3",
+                "mail": "free@example.com",
+                "displayName": "Free User",
+                "accountEnabled": True,
+                "assignedPlans": [{"capabilityStatus": "Enabled", "servicePlanId": "plan-free"}],
+            },
+            {
+                "id": "user-4",
+                "mail": "ppu@example.com",
+                "displayName": "PPU User",
+                "accountEnabled": True,
+                "assignedPlans": [{"capabilityStatus": "Enabled", "servicePlanId": "plan-ppu"}],
+            },
         ]
 
         repository = FakeLicenseRepository()
         user_repository = FakeUserRepository()
         count = await LicenseService(graph_client, repository, user_repository).sync_license_assignments()
 
+        # only Power BI Pro counts against the tenant's fixed seat pool - Free doesn't
+        # consume a seat, and Premium/Premium Per User are tracked separately
         assert count == 1
         assert len(repository.assignments) == 1
         assignment = repository.assignments[0]
@@ -324,10 +342,12 @@ class TestLicenseService:
         assert assignment.license_type == "Power BI Pro"
         assert assignment.service_plan_name == "BI_AZURE_P2"
 
-        # every user's profile is persisted, not just the ones with a Power BI license
+        # every user's profile is persisted, not just the ones with a tracked license
         assert user_repository.get_by_email("pro@example.com").job_title == "Analista Financeiro"
         assert user_repository.get_by_email("pro@example.com").department == "Financeiro"
         assert user_repository.get_by_email("nolicense@example.com") is not None
+        assert user_repository.get_by_email("free@example.com") is not None
+        assert user_repository.get_by_email("ppu@example.com") is not None
 
     async def test_sync_license_assignments_wraps_errors_with_context(self):
         graph_client = AsyncMock()
@@ -385,3 +405,88 @@ class TestLicenseService:
         assert active_row.resources == ["Executive Dashboard"]
         assert active_row.job_title == "Gerente de Vendas"
         assert active_row.department == "Comercial"
+
+    def test_summarize_by_department_aggregates_and_ranks_by_idle_percentage(self):
+        repository = FakeLicenseRepository()
+        repository.assignments = [
+            LicenseAssignment(
+                user_id="user-1",
+                email="active@example.com",
+                display_name="Active",
+                license_type="Power BI Pro",
+                service_plan_name="BI_AZURE_P2",
+            ),
+            LicenseAssignment(
+                user_id="user-2",
+                email="idle@example.com",
+                display_name="Idle",
+                license_type="Power BI Pro",
+                service_plan_name="BI_AZURE_P2",
+            ),
+            LicenseAssignment(
+                user_id="user-3",
+                email="never-used@example.com",
+                display_name="Never Used",
+                license_type="Power BI Pro",
+                service_plan_name="BI_AZURE_P2",
+            ),
+            LicenseAssignment(
+                user_id="user-4",
+                email="no-department@example.com",
+                display_name="No Department",
+                license_type="Power BI Pro",
+                service_plan_name="BI_AZURE_P2",
+            ),
+        ]
+        activity_summary = {
+            "active@example.com": {
+                "last_access": datetime.utcnow() - timedelta(days=1),
+                "resources": {"Executive Dashboard"},
+            },
+            "idle@example.com": {
+                "last_access": datetime.utcnow() - timedelta(days=60),
+                "resources": {"Sales Dashboard"},
+            },
+        }
+        user_repository = FakeUserRepository()
+        user_repository.create(
+            User(user_id="user-1", email="active@example.com", display_name="Active", department="Comercial")
+        )
+        user_repository.create(
+            User(user_id="user-2", email="idle@example.com", display_name="Idle", department="Comercial")
+        )
+        user_repository.create(
+            User(
+                user_id="user-3",
+                email="never-used@example.com",
+                display_name="Never Used",
+                department="Financeiro",
+            )
+        )
+        # user-4 has no persisted profile, so it falls into the "no department" bucket
+
+        service = LicenseService(AsyncMock(), repository, user_repository)
+        rows = service.build_usage_report(activity_summary)
+        summaries = service.summarize_by_department(rows, inactive_days=30)
+
+        by_department = {summary.department: summary for summary in summaries}
+
+        assert by_department["Financeiro"].total_licenses == 1
+        assert by_department["Financeiro"].never_used_count == 1
+        assert by_department["Financeiro"].idle_percentage == 100.0
+
+        assert by_department["Sem departamento"].total_licenses == 1
+        assert by_department["Sem departamento"].idle_percentage == 100.0
+
+        comercial = by_department["Comercial"]
+        assert comercial.total_licenses == 2
+        assert comercial.active_count == 1
+        assert comercial.idle_count == 1
+        assert comercial.never_used_count == 0
+        assert comercial.idle_percentage == 50.0
+
+        # ranked with the highest idle percentage first; ties broken by more licenses
+        assert [summary.department for summary in summaries][:2] == ["Financeiro", "Sem departamento"] or [
+            summary.department for summary in summaries
+        ][:2] == ["Sem departamento", "Financeiro"]
+        assert summaries[-1].department == "Comercial"
