@@ -276,13 +276,15 @@ class TestUserService:
 
 @pytest.mark.unit
 class TestLicenseService:
-    async def test_sync_license_assignments_filters_to_power_bi_plans_and_dedupes(self):
+    async def test_sync_license_assignments_filters_to_pro_plans_and_dedupes(self):
         graph_client = AsyncMock()
         graph_client.get_subscribed_skus.return_value = {
             "value": [
                 {
                     "servicePlans": [
                         {"servicePlanId": "plan-pro", "servicePlanName": "BI_AZURE_P2"},
+                        {"servicePlanId": "plan-free", "servicePlanName": "BI_AZURE_P0"},
+                        {"servicePlanId": "plan-ppu", "servicePlanName": "PBI_PREMIUM_PER_USER"},
                         {"servicePlanId": "plan-exchange", "servicePlanName": "EXCHANGE_S_STANDARD"},
                     ]
                 }
@@ -310,12 +312,28 @@ class TestLicenseService:
                 "accountEnabled": True,
                 "assignedPlans": [{"capabilityStatus": "Enabled", "servicePlanId": "plan-exchange"}],
             },
+            {
+                "id": "user-3",
+                "mail": "free@example.com",
+                "displayName": "Free User",
+                "accountEnabled": True,
+                "assignedPlans": [{"capabilityStatus": "Enabled", "servicePlanId": "plan-free"}],
+            },
+            {
+                "id": "user-4",
+                "mail": "ppu@example.com",
+                "displayName": "PPU User",
+                "accountEnabled": True,
+                "assignedPlans": [{"capabilityStatus": "Enabled", "servicePlanId": "plan-ppu"}],
+            },
         ]
 
         repository = FakeLicenseRepository()
         user_repository = FakeUserRepository()
         count = await LicenseService(graph_client, repository, user_repository).sync_license_assignments()
 
+        # only Power BI Pro counts against the tenant's fixed seat pool - Free doesn't
+        # consume a seat, and Premium/Premium Per User are tracked separately
         assert count == 1
         assert len(repository.assignments) == 1
         assignment = repository.assignments[0]
@@ -324,10 +342,12 @@ class TestLicenseService:
         assert assignment.license_type == "Power BI Pro"
         assert assignment.service_plan_name == "BI_AZURE_P2"
 
-        # every user's profile is persisted, not just the ones with a Power BI license
+        # every user's profile is persisted, not just the ones with a tracked license
         assert user_repository.get_by_email("pro@example.com").job_title == "Analista Financeiro"
         assert user_repository.get_by_email("pro@example.com").department == "Financeiro"
         assert user_repository.get_by_email("nolicense@example.com") is not None
+        assert user_repository.get_by_email("free@example.com") is not None
+        assert user_repository.get_by_email("ppu@example.com") is not None
 
     async def test_sync_license_assignments_wraps_errors_with_context(self):
         graph_client = AsyncMock()

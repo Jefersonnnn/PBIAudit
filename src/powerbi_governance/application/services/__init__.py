@@ -634,25 +634,22 @@ class DepartmentUsageSummary:
 
 class LicenseService:
     """
-    Business logic for Power BI license auditing.
+    Business logic for Power BI Pro license auditing.
 
-    Cross-references Power BI-related Microsoft 365 license assignments
-    (Microsoft Graph) with persisted Power BI activity events, to identify
-    licensed users who are not actually using Power BI.
+    Cross-references Power BI Pro license assignments (Microsoft Graph) with
+    persisted Power BI activity events, to identify Pro-licensed users who
+    are not actually using Power BI. Only Power BI Pro is tracked - it's the
+    paid license drawn from the tenant's fixed seat pool; Power BI (Free)
+    doesn't consume a seat and Premium/Premium Per User are licensed and
+    managed separately, so both are intentionally excluded.
     """
 
-    # Microsoft's stable service plan identifiers for Power BI licenses.
+    # Microsoft's stable service plan identifiers for Power BI Pro.
     # Reference: "Product names and service plan identifiers for licensing".
     _KNOWN_SERVICE_PLANS: dict[str, str] = {
-        "BI_AZURE_P0": "Power BI (Free)",
         "BI_AZURE_P1": "Power BI Pro (legacy)",
         "BI_AZURE_P2": "Power BI Pro",
-        "BI_AZURE_P3": "Power BI Premium",
-        "PBI_PREMIUM_PER_USER": "Power BI Premium Per User",
-        "PBI_PREMIUM_PER_USER_ADDON": "Power BI Premium Per User Add-On",
-        "PBI_PREMIUM_PER_USER_FACULTY": "Power BI Premium Per User (Faculty)",
     }
-    _RELEVANT_SERVICE_PLAN_PREFIXES = ("BI_AZURE_", "PBI_PREMIUM_")
 
     def __init__(self, graph_client, repository, user_repository=None) -> None:
         """
@@ -878,10 +875,8 @@ class LicenseService:
 
     @classmethod
     def _is_power_bi_plan(cls, raw_service_plan_name: str) -> bool:
-        """Check whether a raw Microsoft service plan name is a Power BI license."""
-        return raw_service_plan_name in cls._KNOWN_SERVICE_PLANS or raw_service_plan_name.startswith(
-            cls._RELEVANT_SERVICE_PLAN_PREFIXES
-        )
+        """Check whether a raw Microsoft service plan name is a tracked Power BI Pro license."""
+        return raw_service_plan_name in cls._KNOWN_SERVICE_PLANS
 
 
 __all__ = [

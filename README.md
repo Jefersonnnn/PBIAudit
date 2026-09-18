@@ -171,8 +171,10 @@ Verifies platform health and connectivity.
 ```bash
 poetry run pbi-governance sync-licenses
 ```
-Reads every Azure AD user's Power BI-related Microsoft 365 licenses (Pro, Premium Per User, Free)
-from Microsoft Graph and stores a fresh point-in-time snapshot.
+Reads every Azure AD user's Power BI Pro license from Microsoft Graph and stores a fresh
+point-in-time snapshot. Only Power BI Pro is tracked, since it's the paid license drawn from the
+tenant's fixed seat pool — Power BI (Free) doesn't consume a seat, and Premium/Premium Per User are
+licensed and managed separately.
 
 #### License Usage Audit
 ```bash
@@ -264,8 +266,7 @@ workspace_count = await service.sync_workspaces()
 - **usage_metrics** - Historical per-report view counts, synced via `sync-usage-metrics`
 - **activity_events** - Who accessed which report/dashboard and when, synced via
   `sync-activity-events`
-- **license_assignments** - Power BI license snapshot (Pro/Premium Per User/Free), synced via
-  `sync-licenses`
+- **license_assignments** - Power BI Pro license snapshot, synced via `sync-licenses`
 
 ## Configuration
 

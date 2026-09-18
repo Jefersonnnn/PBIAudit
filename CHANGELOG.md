@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- `sync-licenses`/`license-report`/`department-report` now track only Power BI Pro
+  (`BI_AZURE_P1`/`BI_AZURE_P2`) instead of every Power BI-related plan. Power BI (Free) doesn't
+  consume a seat from the tenant's fixed pool, and Premium/Premium Per User are licensed
+  separately, so both were cluttering the audit with licenses that aren't relevant to reclaiming
+  Pro seats.
 - Removed `datasets` and `reports` tables/models/repositories - nothing ever wrote to them (no
   command persisted a `Dataset`/`Report` row), so they only added dead schema. Migration 003 drops
   both tables.
