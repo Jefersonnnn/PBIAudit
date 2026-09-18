@@ -198,6 +198,17 @@ user: total licenses, active, idle and never-used counts, and idle percentage �
 most idle department first. Useful for spotting which team is holding onto unused seats without
 scrolling through every individual row. Requires the same syncs as `license-report`.
 
+#### HTML Report Export
+```bash
+poetry run pbi-governance export-report --output relatorio.html --inactive-days 30
+```
+Renders the same data as `license-report`/`department-report` into a single self-contained HTML
+file (no external assets, no JavaScript) — departments listed first, each expandable to its users,
+each user expandable to the dashboards/reports they accessed, using native `<details>` drill-down.
+Meant to be opened locally or emailed/shared as-is. `--output` defaults to
+`license_report_<timestamp>.html` in the current directory. Requires the same syncs as
+`license-report`.
+
 **Required Azure AD app permissions (application/admin-consent, not delegated):**
 - `User.Read.All` — list users and their assigned license plans
 - `Organization.Read.All` — resolve license SKU/service-plan names
