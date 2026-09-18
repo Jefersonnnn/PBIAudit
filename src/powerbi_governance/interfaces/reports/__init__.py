@@ -3,7 +3,8 @@ HTML rendering for the license usage audit report.
 
 Produces a single self-contained HTML file (no external assets) with a
 gerência -> department -> user -> dashboard drill-down, using native
-<details>/<summary> elements so no JavaScript is needed.
+<details>/<summary> elements. A small inline script adds filters (by user name
+and by unused licenses); without JavaScript the report still works, unfiltered.
 """
 
 from __future__ import annotations
@@ -99,11 +100,13 @@ def _render_dashboards(resources: list[str]) -> str:
 def _render_user(row: LicenseUsageRow, inactive_days: int) -> str:
     """Render one drill-down <details> block for a single licensed user."""
     label, css_class = _status_label_and_class(row, inactive_days)
+    status_key = css_class.removeprefix("status-")
+    search_text = f"{row.display_name} {row.email}"
     last_access = row.last_access.strftime("%d/%m/%Y") if row.last_access else "Nunca"
     idle_days = str(row.days_since_access) if row.days_since_access is not None else "-"
 
     return f"""
-        <details class="user">
+        <details class="user" data-status="{status_key}" data-search="{_escape(search_text)}">
           <summary>
             <span class="chevron"></span>
             <span class="user-name">{_escape(row.display_name)}</span>
@@ -281,13 +284,31 @@ def render_license_usage_report(
     </div>
   </section>
 
+  <section class="filters" id="filters" hidden aria-label="Filtros">
+    <label class="filter-search">
+      <span class="sr-only">Buscar usuário por nome ou e-mail</span>
+      <input type="search" id="filter-name" placeholder="Buscar por nome ou e-mail" autocomplete="off">
+    </label>
+    <label class="filter-toggle">
+      <input type="checkbox" id="filter-unused">
+      <span>Somente licenças não usadas <span class="filter-hint">(ociosas e nunca usadas)</span></span>
+    </label>
+    <button type="button" id="filter-clear">Limpar</button>
+    <span class="filter-count" id="filter-count" aria-live="polite"></span>
+  </section>
+
   <main>
     {gerencias_html}
+    <p class="empty" id="filter-empty" hidden>Nenhum usuário encontrado com esses filtros.</p>
   </main>
 
   <footer>
     <p>PBIAudit &middot; Relatório gerado automaticamente a partir de sync-licenses e sync-activity-events</p>
   </footer>
+
+  <script>
+{_SCRIPT}
+  </script>
 </body>
 </html>
 """
@@ -433,10 +454,135 @@ _STYLE = """
   .status-idle, .badge.status-idle { color: var(--amber); background: var(--amber-bg); }
   .status-never, .badge.status-never { color: var(--red); background: var(--red-bg); }
 
+  [hidden] { display: none !important; }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .filters {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    max-width: 960px;
+    margin: 0 auto 16px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+  .filter-search input {
+    min-width: 260px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font: inherit;
+    font-size: 14px;
+    color: var(--text);
+    background: var(--card-bg);
+  }
+  .filter-search input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .filter-toggle { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+  .filter-hint { color: var(--muted); font-size: 12px; }
+  .filters button {
+    padding: 7px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .filters button:hover { background: var(--border); }
+  .filter-count { margin-left: auto; color: var(--muted); font-size: 13px; }
+
   @media (max-width: 640px) {
     .summary-cards { grid-template-columns: repeat(2, 1fr); }
     .user-body dl { grid-template-columns: 1fr; }
+    .filter-search { flex: 1 1 100%; }
+    .filter-search input { min-width: 0; width: 100%; }
+    .filter-count { margin-left: 0; }
   }
+
+  @media print {
+    .filters { display: none; }
+  }
+"""
+
+
+_SCRIPT = r"""
+  (function () {
+    var filters = document.getElementById("filters");
+    if (!filters) { return; }
+
+    var nameInput = document.getElementById("filter-name");
+    var unusedOnly = document.getElementById("filter-unused");
+    var clearButton = document.getElementById("filter-clear");
+    var counter = document.getElementById("filter-count");
+    var emptyMessage = document.getElementById("filter-empty");
+
+    var users = Array.prototype.slice.call(document.querySelectorAll("details.user"));
+    var groups = Array.prototype.slice.call(
+      document.querySelectorAll("details.department, details.gerencia")
+    );
+
+    // accent- and case-insensitive, so "jose" finds "José"
+    function normalize(text) {
+      return text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    }
+
+    var searchIndex = users.map(function (user) {
+      return normalize(user.getAttribute("data-search") || "");
+    });
+
+    function applyFilters() {
+      var query = normalize(nameInput.value.trim());
+      var onlyUnused = unusedOnly.checked;
+      var filtering = query !== "" || onlyUnused;
+      var shown = 0;
+
+      users.forEach(function (user, index) {
+        var status = user.getAttribute("data-status");
+        var matchesName = query === "" || searchIndex[index].indexOf(query) !== -1;
+        var matchesStatus = !onlyUnused || status === "idle" || status === "never";
+        var visible = matchesName && matchesStatus;
+        user.hidden = !visible;
+        if (visible) { shown += 1; }
+      });
+
+      groups.forEach(function (group) {
+        var hasVisibleUsers = group.querySelector("details.user:not([hidden])") !== null;
+        group.hidden = !hasVisibleUsers;
+        if (filtering && hasVisibleUsers) { group.open = true; }
+      });
+
+      counter.textContent = "Mostrando " + shown + " de " + users.length + " licenças";
+      emptyMessage.hidden = shown !== 0 || users.length === 0;
+    }
+
+    nameInput.addEventListener("input", applyFilters);
+    unusedOnly.addEventListener("change", applyFilters);
+    clearButton.addEventListener("click", function () {
+      nameInput.value = "";
+      unusedOnly.checked = false;
+      applyFilters();
+      nameInput.focus();
+    });
+
+    // without JavaScript the report still works, just unfiltered
+    filters.hidden = false;
+    applyFilters();
+  })();
 """
 
 

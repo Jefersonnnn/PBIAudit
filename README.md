@@ -203,7 +203,8 @@ scrolling through every individual row. Requires the same syncs as `license-repo
 poetry run pbi-governance export-report --output relatorio.html --inactive-days 30
 ```
 Renders the same data as `license-report`/`department-report` into a single self-contained HTML
-file (no external assets, no JavaScript), using native `<details>` drill-down:
+file (no external assets; a small inline script adds the filters below), using native `<details>`
+drill-down:
 **gerência → departamento → usuário → dashboards acessados**. The gerência (management unit) is
 parsed from the leading numeric code Azure AD puts on the `department` field — e.g.
 `"034 CEM Coordenação Eletromecânica"` becomes gerência `034`, department `CEM Coordenação
@@ -211,6 +212,12 @@ Eletromecânica`; a department with no leading code falls under "Sem gerência".
 locally or emailed/shared as-is. `--output` defaults to `license_report_<timestamp>.html` in the
 current directory. Requires the same syncs as
 `license-report`.
+
+**Filters.** A sticky bar at the top of the report filters the list live: a search box (matches
+name or e-mail, ignoring case and accents, so "jose" finds "José") and a "Somente licenças não
+usadas" checkbox (idle and never-used licenses only). They combine, groups with no match are hidden,
+and a counter shows "Mostrando X de Y licenças". Without JavaScript the report still opens, just
+without the filter bar.
 
 **Gerência names.** Nothing in Microsoft 365 maps a code like `034` to a name (Graph's
 `employeeOrgData.division`/`costCenter` are empty in this tenant), so the names come from a CSV you

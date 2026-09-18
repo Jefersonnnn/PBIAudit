@@ -170,6 +170,47 @@ class TestRenderLicenseUsageReport:
         assert "Gerência 034<" in html
         assert "·" not in html.split("<main>")[1]
 
+    def test_renders_the_filter_controls_hidden_until_javascript_reveals_them(self):
+        rows = [_row()]
+        summaries = [DepartmentUsageSummary("Financeiro", 1, 0, 1, 1)]
+
+        html = render_license_usage_report(rows, summaries, inactive_days=30)
+
+        assert '<section class="filters" id="filters" hidden' in html
+        assert 'id="filter-name"' in html
+        assert 'id="filter-unused"' in html
+        assert 'id="filter-clear"' in html
+        assert 'id="filter-empty"' in html
+        assert "<script>" in html and "applyFilters" in html
+
+    def test_tags_each_user_with_status_and_searchable_text(self):
+        rows = [
+            _row(display_name="Ana Souza", email="ana@example.com", last_access=datetime.utcnow(), days_since_access=1),
+            _row(
+                display_name="Bruno Lima",
+                email="bruno@example.com",
+                last_access=datetime.utcnow() - timedelta(days=60),
+                days_since_access=60,
+            ),
+            _row(display_name="José Nunes", email="jose@example.com", last_access=None, days_since_access=None),
+        ]
+        summaries = [DepartmentUsageSummary("Financeiro", 3, 1, 2, 1)]
+
+        html = render_license_usage_report(rows, summaries, inactive_days=30)
+
+        assert 'data-status="active" data-search="Ana Souza ana@example.com"' in html
+        assert 'data-status="idle" data-search="Bruno Lima bruno@example.com"' in html
+        assert 'data-status="never" data-search="José Nunes jose@example.com"' in html
+
+    def test_escapes_the_search_attribute(self):
+        rows = [_row(display_name='Ana" onmouseover="alert(1)', email="ana@example.com")]
+        summaries = [DepartmentUsageSummary("Financeiro", 1, 0, 1, 1)]
+
+        html = render_license_usage_report(rows, summaries, inactive_days=30)
+
+        assert 'onmouseover="alert(1)' not in html
+        assert "&quot; onmouseover=&quot;alert(1)" in html
+
     def test_department_without_a_leading_code_falls_back_to_sem_gerencia(self):
         rows = [_row(department="Financeiro")]
         summaries = [

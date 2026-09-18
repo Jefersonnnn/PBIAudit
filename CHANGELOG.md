@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   columns.
 
 ### Added
+- Filters in the `export-report` HTML (small inline script): live search by user name or e-mail
+  (case- and accent-insensitive) and an "only unused licenses" toggle (idle + never used). They
+  combine, empty groups are hidden, and a counter shows how many licenses match. Without JavaScript
+  the report still works, unfiltered.
 - Gerência names in the `export-report` HTML: `init-gerencias` writes a `gerencias.csv` template
   (one row per gerência code found in the synced users, with the manager's acronym as a hint), and
   `export-report` reads it (`--gerencias-file`, default `./gerencias.csv`) to show
