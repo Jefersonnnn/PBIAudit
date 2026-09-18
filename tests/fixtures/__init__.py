@@ -5,7 +5,7 @@ Test fixtures and factories for unit and integration tests
 import pytest
 from factory import Faker
 
-from powerbi_governance.domain.entities import User, Workspace, Dataset, Report
+from powerbi_governance.domain.entities import User, Workspace
 
 
 class UserFactory:
@@ -40,38 +40,6 @@ class WorkspaceFactory:
         return Workspace(**data)
 
 
-class DatasetFactory:
-    """Factory for creating test Dataset entities"""
-
-    @staticmethod
-    def create(**kwargs):
-        """Create a Dataset instance"""
-        data = {
-            "dataset_id": kwargs.get("dataset_id", "00000000-0000-0000-0000-000000000003"),
-            "workspace_id": kwargs.get("workspace_id", "00000000-0000-0000-0000-000000000002"),
-            "name": kwargs.get("name", "Test Dataset"),
-            "description": kwargs.get("description", "Test dataset description"),
-            "refresh_count": kwargs.get("refresh_count", 0),
-        }
-        return Dataset(**data)
-
-
-class ReportFactory:
-    """Factory for creating test Report entities"""
-
-    @staticmethod
-    def create(**kwargs):
-        """Create a Report instance"""
-        data = {
-            "report_id": kwargs.get("report_id", "00000000-0000-0000-0000-000000000004"),
-            "workspace_id": kwargs.get("workspace_id", "00000000-0000-0000-0000-000000000002"),
-            "dataset_id": kwargs.get("dataset_id", "00000000-0000-0000-0000-000000000003"),
-            "name": kwargs.get("name", "Test Report"),
-            "web_url": kwargs.get("web_url", "https://app.powerbi.com/groups/me/reports/test"),
-        }
-        return Report(**data)
-
-
 @pytest.fixture
 def test_user():
     """Fixture providing a test user"""
@@ -84,25 +52,9 @@ def test_workspace():
     return WorkspaceFactory.create()
 
 
-@pytest.fixture
-def test_dataset():
-    """Fixture providing a test dataset"""
-    return DatasetFactory.create()
-
-
-@pytest.fixture
-def test_report():
-    """Fixture providing a test report"""
-    return ReportFactory.create()
-
-
 __all__ = [
     "UserFactory",
     "WorkspaceFactory",
-    "DatasetFactory",
-    "ReportFactory",
     "test_user",
     "test_workspace",
-    "test_dataset",
-    "test_report",
 ]

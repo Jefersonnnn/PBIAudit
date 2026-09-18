@@ -42,6 +42,20 @@ class FakeLicenseRepository:
         return self.assignments
 
 
+class FakeUserRepository:
+    """Repository fake standing in for UserRepository, keyed by email."""
+
+    def __init__(self) -> None:
+        self.users_by_email: dict = {}
+
+    def create(self, entity):
+        self.users_by_email[entity.email] = entity
+        return entity
+
+    def get_by_email(self, email: str):
+        return self.users_by_email.get(email)
+
+
 @pytest.mark.unit
 class TestWorkspaceService:
     async def test_sync_workspaces_normalizes_and_upserts_powerbi_payload(self):
@@ -280,6 +294,8 @@ class TestLicenseService:
                 "mail": "pro@example.com",
                 "displayName": "Pro User",
                 "accountEnabled": True,
+                "jobTitle": "Analista Financeiro",
+                "department": "Financeiro",
                 "assignedPlans": [
                     {"capabilityStatus": "Enabled", "servicePlanId": "plan-pro"},
                     {"capabilityStatus": "Enabled", "servicePlanId": "plan-pro"},
@@ -297,7 +313,8 @@ class TestLicenseService:
         ]
 
         repository = FakeLicenseRepository()
-        count = await LicenseService(graph_client, repository).sync_license_assignments()
+        user_repository = FakeUserRepository()
+        count = await LicenseService(graph_client, repository, user_repository).sync_license_assignments()
 
         assert count == 1
         assert len(repository.assignments) == 1
@@ -306,6 +323,11 @@ class TestLicenseService:
         assert assignment.email == "pro@example.com"
         assert assignment.license_type == "Power BI Pro"
         assert assignment.service_plan_name == "BI_AZURE_P2"
+
+        # every user's profile is persisted, not just the ones with a Power BI license
+        assert user_repository.get_by_email("pro@example.com").job_title == "Analista Financeiro"
+        assert user_repository.get_by_email("pro@example.com").department == "Financeiro"
+        assert user_repository.get_by_email("nolicense@example.com") is not None
 
     async def test_sync_license_assignments_wraps_errors_with_context(self):
         graph_client = AsyncMock()
@@ -338,15 +360,28 @@ class TestLicenseService:
                 "resources": {"Executive Dashboard"},
             }
         }
+        user_repository = FakeUserRepository()
+        user_repository.create(
+            User(
+                user_id="user-1",
+                email="active@example.com",
+                display_name="Active",
+                job_title="Gerente de Vendas",
+                department="Comercial",
+            )
+        )
 
-        rows = LicenseService(AsyncMock(), repository).build_usage_report(activity_summary)
+        rows = LicenseService(AsyncMock(), repository, user_repository).build_usage_report(activity_summary)
 
         assert [row.email for row in rows] == ["idle@example.com", "active@example.com"]
         never_used_row = rows[0]
         assert never_used_row.last_access is None
         assert never_used_row.days_since_access is None
         assert never_used_row.resources == []
+        assert never_used_row.job_title is None  # no profile synced for this user
 
         active_row = rows[1]
         assert active_row.days_since_access == 1
         assert active_row.resources == ["Executive Dashboard"]
+        assert active_row.job_title == "Gerente de Vendas"
+        assert active_row.department == "Comercial"

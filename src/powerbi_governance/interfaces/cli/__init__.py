@@ -32,6 +32,7 @@ from powerbi_governance.infrastructure.repositories import (
     ActivityEventRepository,
     LicenseAssignmentRepository,
     UsageMetricRepository,
+    UserRepository,
     WorkspaceRepository,
 )
 
@@ -69,6 +70,7 @@ class CliContext:
     usage_metric_repository: UsageMetricRepository
     activity_event_repository: ActivityEventRepository
     license_repository: LicenseAssignmentRepository
+    user_repository: UserRepository
 
     def close(self) -> None:
         """Release resources created for a CLI command."""
@@ -108,6 +110,7 @@ def _build_cli_context() -> CliContext:
         usage_metric_repository=UsageMetricRepository(session),
         activity_event_repository=ActivityEventRepository(session),
         license_repository=LicenseAssignmentRepository(session),
+        user_repository=UserRepository(session),
     )
 
 
@@ -207,7 +210,7 @@ def sync_licenses() -> None:
     context: CliContext | None = None
     try:
         context = _build_cli_context()
-        service = LicenseService(context.graph_client, context.license_repository)
+        service = LicenseService(context.graph_client, context.license_repository, context.user_repository)
         assignment_count = _run_async(service.sync_license_assignments())
         console.print(f"[green]✓ Synchronized {assignment_count} license assignments[/green]")
 
@@ -236,7 +239,7 @@ def license_report(
     context: CliContext | None = None
     try:
         context = _build_cli_context()
-        license_service = LicenseService(context.graph_client, context.license_repository)
+        license_service = LicenseService(context.graph_client, context.license_repository, context.user_repository)
 
         activity_summary = context.activity_event_repository.get_usage_summary_by_user()
         rows = license_service.build_usage_report(activity_summary)
@@ -251,6 +254,8 @@ def license_report(
         table = Table(title="Power BI License Usage Audit")
         table.add_column("Name", style="magenta")
         table.add_column("Email", style="cyan")
+        table.add_column("Cargo", style="white")
+        table.add_column("Departamento", style="white")
         table.add_column("License", style="blue")
         table.add_column("Last Access", style="white")
         table.add_column("Idle (days)", justify="right")
@@ -278,6 +283,8 @@ def license_report(
             table.add_row(
                 row.display_name,
                 row.email,
+                row.job_title or "-",
+                row.department or "-",
                 row.license_type,
                 row.last_access.strftime("%Y-%m-%d") if row.last_access else "Never",
                 str(row.days_since_access) if row.days_since_access is not None else "-",

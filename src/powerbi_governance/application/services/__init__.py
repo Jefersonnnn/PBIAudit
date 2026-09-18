@@ -609,6 +609,8 @@ class LicenseUsageRow:
     last_access: Optional[datetime]
     days_since_access: Optional[int]
     resources: list[str] = field(default_factory=list)
+    job_title: Optional[str] = None
+    department: Optional[str] = None
 
 
 class LicenseService:
@@ -633,21 +635,27 @@ class LicenseService:
     }
     _RELEVANT_SERVICE_PLAN_PREFIXES = ("BI_AZURE_", "PBI_PREMIUM_")
 
-    def __init__(self, graph_client, repository) -> None:
+    def __init__(self, graph_client, repository, user_repository=None) -> None:
         """
         Initialize license service.
 
         Args:
             graph_client: Microsoft Graph client
             repository: License assignment repository for persistence
+            user_repository: Optional user repository, used to persist each
+                user's job title/department alongside their license so the
+                usage report can show who (role-wise) holds an idle license
         """
         self.graph_client = graph_client
         self.repository = repository
+        self.user_repository = user_repository
 
     async def sync_license_assignments(self) -> int:
         """
         Fetch every Power BI-related license assignment from Microsoft Graph
-        and replace the persisted snapshot with it.
+        and replace the persisted snapshot with it. Also upserts each user's
+        profile (display name, job title, department) when a user_repository
+        was provided.
 
         Returns:
             Number of license assignments synchronized
@@ -664,6 +672,11 @@ class LicenseService:
             assignments: list[LicenseAssignment] = []
             for raw_user in raw_users:
                 assignments.extend(self._extract_license_assignments(raw_user, plan_id_to_name, synced_at))
+
+                if self.user_repository is not None:
+                    profile = self._build_user_profile(raw_user)
+                    if profile is not None:
+                        await _maybe_await(self.user_repository.create(profile))
 
             synced_count = self.repository.replace_all(assignments)
             log.info(
@@ -699,6 +712,13 @@ class LicenseService:
             resources = sorted(activity["resources"]) if activity else []
             days_since_access = (now - last_access).days if last_access else None
 
+            job_title = department = None
+            if self.user_repository is not None:
+                user = self.user_repository.get_by_email(assignment.email)
+                if user is not None:
+                    job_title = user.job_title
+                    department = user.department
+
             rows.append(
                 LicenseUsageRow(
                     display_name=assignment.display_name,
@@ -708,6 +728,8 @@ class LicenseService:
                     last_access=last_access,
                     days_since_access=days_since_access,
                     resources=resources,
+                    job_title=job_title,
+                    department=department,
                 )
             )
 
@@ -773,6 +795,25 @@ class LicenseService:
             )
 
         return assignments
+
+    def _build_user_profile(self, raw_user: Any) -> User | None:
+        """Build a User entity (display name, job title, department) from a Graph user payload."""
+        if not isinstance(raw_user, Mapping):
+            return None
+
+        email = _first_present(raw_user, "mail", "userPrincipalName")
+        user_id = _first_present(raw_user, "id", default=email)
+        if not email or not user_id:
+            return None
+
+        return User(
+            user_id=str(user_id),
+            email=str(email).lower(),
+            display_name=str(_first_present(raw_user, "displayName", default=email)),
+            job_title=_first_present(raw_user, "jobTitle"),
+            department=_first_present(raw_user, "department"),
+            is_active=bool(_first_present(raw_user, "accountEnabled", default=True)),
+        )
 
     @classmethod
     def _is_power_bi_plan(cls, raw_service_plan_name: str) -> bool:

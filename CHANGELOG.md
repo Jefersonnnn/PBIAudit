@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Removed `datasets` and `reports` tables/models/repositories - nothing ever wrote to them (no
+  command persisted a `Dataset`/`Report` row), so they only added dead schema. Migration 003 drops
+  both tables.
+- `sync-usage-metrics` now actually persists usage metrics. `UsageMetricRepository` was a stub
+  (every method was `pass`) that silently discarded everything while the CLI reported success.
+- `sync-licenses` now also upserts each user's profile (display name, job title, department) into
+  `users`, and `license-report` shows job title/department per row - migration 003 adds those two
+  columns.
+
 ### Added
 - License usage audit: `sync-licenses` and `license-report` CLI commands cross-reference Power
   BI-related Microsoft 365 license assignments (from Microsoft Graph `assignedPlans`) with

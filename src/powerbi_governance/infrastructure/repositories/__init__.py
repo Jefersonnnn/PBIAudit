@@ -10,7 +10,7 @@ before re-raising the original exception.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any, Generic, TypeVar, Optional, List
+from typing import Any, Generic, TypeVar, List
 from uuid import uuid4
 
 from sqlalchemy import or_, select
@@ -18,9 +18,8 @@ from sqlalchemy.orm import Session
 
 from powerbi_governance.infrastructure.database.models import (
     ActivityEventModel,
-    DatasetModel,
     LicenseAssignmentModel,
-    ReportModel,
+    UsageMetricModel,
     UserModel,
     WorkspaceModel,
 )
@@ -173,30 +172,6 @@ class WorkspaceRepository(BaseRepository[WorkspaceModel]):
         return list(self.session.scalars(statement).all())
 
 
-class DatasetRepository(BaseRepository[DatasetModel]):
-    """Repository for dataset operations."""
-
-    model_class = DatasetModel
-    external_key = "dataset_id"
-
-    def get_by_workspace(self, workspace_id: str) -> list[DatasetModel]:
-        """Get datasets in a workspace by Power BI workspace ID."""
-        statement = select(DatasetModel).where(DatasetModel.workspace_id == workspace_id)
-        return list(self.session.scalars(statement).all())
-
-
-class ReportRepository(BaseRepository[ReportModel]):
-    """Repository for report operations."""
-
-    model_class = ReportModel
-    external_key = "report_id"
-
-    def get_by_workspace(self, workspace_id: str) -> list[ReportModel]:
-        """Get reports in a workspace by Power BI workspace ID."""
-        statement = select(ReportModel).where(ReportModel.workspace_id == workspace_id)
-        return list(self.session.scalars(statement).all())
-
-
 class UserRepository(BaseRepository[UserModel]):
     """Repository for user operations."""
 
@@ -221,32 +196,50 @@ class UserRepository(BaseRepository[UserModel]):
         return list(self.session.scalars(statement).all())
 
 
-class UsageMetricRepository(BaseRepository[ModelT]):
-    """Repository for usage metric operations"""
+class UsageMetricRepository(BaseRepository[UsageMetricModel]):
+    """
+    Repository for usage metric operations.
 
-    def get_by_id(self, id: str) -> Optional[ModelT]:
-        """Get usage metric by ID"""
-        pass
+    Usage metrics are a daily time series per report, so the natural key is
+    the (report_id, metric_date) pair rather than a single external_key
+    column - ``create`` is overridden to upsert on that pair instead.
+    """
 
-    def get_all(self, skip: int = 0, limit: int = 100) -> List[ModelT]:
-        """Get all usage metrics"""
-        pass
+    model_class = UsageMetricModel
 
-    def create(self, entity: ModelT) -> ModelT:
-        """Create new usage metric"""
-        pass
+    def create(self, entity: UsageMetricModel | dict[str, Any]) -> UsageMetricModel:
+        """Create a usage metric, or update the row for the same report_id + metric_date."""
+        data = self._entity_to_dict(entity)
+        existing = None
+        if "report_id" in data and "metric_date" in data:
+            statement = select(UsageMetricModel).where(
+                UsageMetricModel.report_id == data["report_id"],
+                UsageMetricModel.metric_date == data["metric_date"],
+            )
+            existing = self.session.scalars(statement).first()
 
-    def update(self, id: str, entity: ModelT) -> Optional[ModelT]:
-        """Update usage metric"""
-        pass
+        try:
+            if existing is not None:
+                self._apply_data(existing, data, preserve_internal_id=True)
+                self.session.add(existing)
+                self.session.commit()
+                self.session.refresh(existing)
+                return existing
 
-    def delete(self, id: str) -> bool:
-        """Delete usage metric"""
-        pass
+            data.setdefault("id", str(uuid4()))
+            instance = UsageMetricModel(**data)
+            self.session.add(instance)
+            self.session.commit()
+            self.session.refresh(instance)
+            return instance
+        except Exception:
+            self.session.rollback()
+            raise
 
-    def get_by_workspace(self, workspace_id: str) -> List[ModelT]:
-        """Get usage metrics for a workspace"""
-        pass
+    def get_by_workspace(self, workspace_id: str) -> list[UsageMetricModel]:
+        """Get usage metrics for a workspace."""
+        statement = select(UsageMetricModel).where(UsageMetricModel.workspace_id == workspace_id)
+        return list(self.session.scalars(statement).all())
 
 
 class ActivityEventRepository(BaseRepository[ActivityEventModel]):
@@ -320,8 +313,6 @@ class LicenseAssignmentRepository(BaseRepository[LicenseAssignmentModel]):
 __all__ = [
     "BaseRepository",
     "WorkspaceRepository",
-    "DatasetRepository",
-    "ReportRepository",
     "UserRepository",
     "UsageMetricRepository",
     "ActivityEventRepository",

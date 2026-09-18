@@ -25,6 +25,8 @@ class User(BaseEntity):
     user_id: str = Field(description="Azure AD object ID")
     email: str = Field(description="User email address")
     display_name: str = Field(description="User display name")
+    job_title: Optional[str] = Field(default=None, description="Job title / cargo, from Azure AD")
+    department: Optional[str] = Field(default=None, description="Department, from Azure AD")
     is_admin: bool = Field(default=False, description="Is Power BI admin")
     is_active: bool = Field(default=True, description="Is user active")
     last_activity_at: Optional[datetime] = Field(default=None, description="Last activity timestamp")
@@ -39,27 +41,6 @@ class Workspace(BaseEntity):
     state: str = Field(default="ACTIVE", description="Workspace state")
     is_on_dedicated_capacity: bool = Field(default=False, description="On dedicated capacity")
     capacity_id: Optional[str] = Field(default=None, description="Capacity identifier if premium")
-
-
-class Dataset(BaseEntity):
-    """Power BI dataset entity"""
-    dataset_id: str = Field(description="Dataset unique identifier from Power BI")
-    workspace_id: str = Field(description="Parent workspace ID")
-    name: str = Field(description="Dataset name")
-    description: Optional[str] = Field(default=None, description="Dataset description")
-    refresh_count: int = Field(default=0, description="Total refresh count")
-    last_refresh_time: Optional[datetime] = Field(default=None, description="Last refresh timestamp")
-
-
-class Report(BaseEntity):
-    """Power BI report entity"""
-    report_id: str = Field(description="Report unique identifier from Power BI")
-    workspace_id: str = Field(description="Parent workspace ID")
-    dataset_id: Optional[str] = Field(default=None, description="Linked dataset ID")
-    name: str = Field(description="Report name")
-    description: Optional[str] = Field(default=None, description="Report description")
-    is_paginated: bool = Field(default=False, description="Is paginated report")
-    web_url: str = Field(description="Web URL to report")
 
 
 class UsageMetric(BaseEntity):
@@ -98,8 +79,6 @@ __all__ = [
     "BaseEntity",
     "User",
     "Workspace",
-    "Dataset",
-    "Report",
     "UsageMetric",
     "ActivityEvent",
     "LicenseAssignment",

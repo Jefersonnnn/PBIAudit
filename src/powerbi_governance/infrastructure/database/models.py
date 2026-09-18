@@ -18,6 +18,8 @@ class UserModel(Base):
     user_id = Column(String(255), nullable=False, unique=True)
     email = Column(String(255), nullable=False, unique=True)
     display_name = Column(String(255), nullable=False)
+    job_title = Column(String(255), nullable=True)
+    department = Column(String(255), nullable=True)
     is_admin = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     last_activity_at = Column(DateTime, nullable=True)
@@ -37,37 +39,6 @@ class WorkspaceModel(Base):
     state = Column(String(50), default="ACTIVE")
     is_on_dedicated_capacity = Column(Boolean, default=False)
     capacity_id = Column(String(255), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class DatasetModel(Base):
-    """Dataset database model"""
-    __tablename__ = "datasets"
-
-    id = Column(String(36), primary_key=True)
-    dataset_id = Column(String(255), nullable=False, unique=True)
-    workspace_id = Column(String(255), nullable=False)
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    refresh_count = Column(Integer, default=0)
-    last_refresh_time = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class ReportModel(Base):
-    """Report database model"""
-    __tablename__ = "reports"
-
-    id = Column(String(36), primary_key=True)
-    report_id = Column(String(255), nullable=False, unique=True)
-    workspace_id = Column(String(255), nullable=False)
-    dataset_id = Column(String(255), nullable=True)
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    is_paginated = Column(Boolean, default=False)
-    web_url = Column(String(500), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -123,8 +94,6 @@ __all__ = [
     "Base",
     "UserModel",
     "WorkspaceModel",
-    "DatasetModel",
-    "ReportModel",
     "UsageMetricModel",
     "ActivityEventModel",
     "LicenseAssignmentModel",

@@ -150,12 +150,22 @@ class GraphClient:
 
         Returns:
             List of raw user payloads with id, displayName, mail,
-            userPrincipalName, accountEnabled and assignedPlans
+            userPrincipalName, accountEnabled, assignedPlans, jobTitle
+            and department
         """
         log.info("Fetching all users with license info from Graph")
 
         select_fields = ",".join(
-            ["id", "displayName", "mail", "userPrincipalName", "accountEnabled", "assignedPlans"]
+            [
+                "id",
+                "displayName",
+                "mail",
+                "userPrincipalName",
+                "accountEnabled",
+                "assignedPlans",
+                "jobTitle",
+                "department",
+            ]
         )
         url = f"{self.base_url}/users"
         params: Optional[dict] = {"$select": select_fields, "$top": page_size}

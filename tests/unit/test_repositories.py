@@ -6,13 +6,12 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from powerbi_governance.domain.entities import ActivityEvent, Dataset, LicenseAssignment, Report, User, Workspace
+from powerbi_governance.domain.entities import ActivityEvent, LicenseAssignment, UsageMetric, User, Workspace
 from powerbi_governance.infrastructure.database.models import Base
 from powerbi_governance.infrastructure.repositories import (
     ActivityEventRepository,
-    DatasetRepository,
     LicenseAssignmentRepository,
-    ReportRepository,
+    UsageMetricRepository,
     UserRepository,
     WorkspaceRepository,
 )
@@ -97,57 +96,45 @@ class TestWorkspaceRepository:
 
 
 @pytest.mark.unit
-class TestDatasetRepository:
-    """Tests for dataset persistence."""
+class TestUsageMetricRepository:
+    """Tests for usage metric persistence."""
 
-    def test_get_by_workspace_and_dataset_upsert(self, db_session: Session) -> None:
-        """Datasets should be queryable by workspace and upserted by dataset_id."""
-        repository = DatasetRepository(db_session)
+    def test_get_by_workspace_and_upsert_by_report_and_date(self, db_session: Session) -> None:
+        """Usage metrics should be queryable by workspace and upserted by (report_id, metric_date)."""
+        repository = UsageMetricRepository(db_session)
+        metric_date = datetime(2026, 6, 1)
         created = repository.create(
-            Dataset(dataset_id="dataset-1", workspace_id="workspace-1", name="Sales")
+            UsageMetric(
+                report_id="report-1",
+                workspace_id="workspace-1",
+                metric_date=metric_date,
+                views=10,
+                unique_viewers=2,
+            )
         )
-        repository.create(Dataset(dataset_id="dataset-2", workspace_id="workspace-2", name="HR"))
+        repository.create(
+            UsageMetric(
+                report_id="report-2",
+                workspace_id="workspace-2",
+                metric_date=metric_date,
+                views=1,
+                unique_viewers=1,
+            )
+        )
         upserted = repository.create(
-            Dataset(dataset_id="dataset-1", workspace_id="workspace-1", name="Sales Updated", refresh_count=3)
+            UsageMetric(
+                report_id="report-1",
+                workspace_id="workspace-1",
+                metric_date=metric_date,
+                views=42,
+                unique_viewers=7,
+            )
         )
 
         assert upserted.id == created.id
-        assert upserted.refresh_count == 3
-        assert [dataset.dataset_id for dataset in repository.get_by_workspace("workspace-1")] == ["dataset-1"]
+        assert upserted.views == 42
+        assert [metric.report_id for metric in repository.get_by_workspace("workspace-1")] == ["report-1"]
         assert len(repository.get_all()) == 2
-
-
-@pytest.mark.unit
-class TestReportRepository:
-    """Tests for report persistence."""
-
-    def test_get_by_workspace_and_report_upsert(self, db_session: Session) -> None:
-        """Reports should be queryable by workspace and upserted by report_id."""
-        repository = ReportRepository(db_session)
-        created = repository.create(
-            Report(
-                report_id="report-1",
-                workspace_id="workspace-1",
-                dataset_id="dataset-1",
-                name="Revenue",
-                web_url="https://app.powerbi.com/report-1",
-            )
-        )
-        upserted = repository.create(
-            Report(
-                report_id="report-1",
-                workspace_id="workspace-1",
-                dataset_id="dataset-2",
-                name="Revenue Updated",
-                web_url="https://app.powerbi.com/report-1-updated",
-                is_paginated=True,
-            )
-        )
-
-        assert upserted.id == created.id
-        assert upserted.dataset_id == "dataset-2"
-        assert upserted.is_paginated is True
-        assert repository.get_by_workspace("workspace-1") == [upserted]
 
 
 @pytest.mark.unit
@@ -162,6 +149,8 @@ class TestUserRepository:
                 user_id="user-1",
                 email="active@example.com",
                 display_name="Active User",
+                job_title="Analista de Dados",
+                department="TI",
                 last_activity_at=datetime.utcnow(),
             )
         )
@@ -198,6 +187,9 @@ class TestUserRepository:
             inactive_by_flag.id,
             stale_user.id,
         }
+        # job_title/department from the original create survive an update that omits them
+        assert repository.get_by_email("renamed@example.com").job_title == "Analista de Dados"
+        assert repository.get_by_email("renamed@example.com").department == "TI"
 
 
 @pytest.mark.unit
