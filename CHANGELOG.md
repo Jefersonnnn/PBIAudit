@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   columns.
 
 ### Added
+- `export-report` CLI command: renders the license usage audit as a single self-contained HTML
+  file (no external assets/JS) with a department → user → dashboard drill-down, using native
+  `<details>` elements. Initial version, to be refined iteratively.
 - `department-report` CLI command: same license-vs-usage data as `license-report`, aggregated by
   department (active/idle/never-used counts and idle percentage per team) instead of per user.
 - License usage audit: `sync-licenses` and `license-report` CLI commands cross-reference Power

@@ -7,6 +7,8 @@ Provides commands for synchronization, listing and management operations.
 import asyncio
 from collections.abc import Awaitable
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Annotated, Any, TypeVar
 
 import structlog
@@ -35,6 +37,7 @@ from powerbi_governance.infrastructure.repositories import (
     UserRepository,
     WorkspaceRepository,
 )
+from powerbi_governance.interfaces.reports import render_license_usage_report
 
 log = structlog.get_logger(__name__)
 console = Console()
@@ -371,6 +374,54 @@ def department_report(
 
 
 @app.command()
+def export_report(
+    output: Annotated[str, typer.Option(help="Output HTML file path")] = "",
+    inactive_days: Annotated[
+        int, typer.Option(help="Days without activity before a license is flagged as idle")
+    ] = 30,
+) -> None:
+    """
+    Export the license usage audit as a standalone HTML file.
+
+    Departments are listed first, each expandable to its users, each user
+    expandable to the dashboards they accessed. Reads from the local database,
+    so run 'sync-licenses' and 'sync-activity-events' first (or on a schedule)
+    to keep it current.
+    """
+    console.print("[bold blue]📄 Exporting HTML report...[/bold blue]")
+
+    context: CliContext | None = None
+    try:
+        context = _build_cli_context()
+        license_service = LicenseService(context.graph_client, context.license_repository, context.user_repository)
+
+        activity_summary = context.activity_event_repository.get_usage_summary_by_user()
+        rows = license_service.build_usage_report(activity_summary)
+
+        if not rows:
+            console.print(
+                "[yellow]No license assignments found. Run 'sync-licenses' first "
+                "(requires Graph User.Read.All and Organization.Read.All permissions).[/yellow]"
+            )
+            return
+
+        summaries = license_service.summarize_by_department(rows, inactive_days=inactive_days)
+        report_html = render_license_usage_report(rows, summaries, inactive_days=inactive_days)
+
+        output_path = Path(output) if output else Path(f"license_report_{datetime.now():%Y%m%d_%H%M%S}.html")
+        output_path.write_text(report_html, encoding="utf-8")
+
+        console.print(f"[green]✓ Report exported to {output_path.resolve()}[/green]")
+
+    except Exception as e:
+        console.print(f"[red]✗ Error: {e!s}[/red]")
+        raise typer.Exit(code=1) from e
+    finally:
+        if context:
+            context.close()
+
+
+@app.command()
 def list_workspaces(
     skip: Annotated[int, typer.Argument(help="Skip N workspaces")] = 0,
     top: Annotated[int, typer.Argument(help="Show top N workspaces")] = 10,
@@ -492,12 +543,20 @@ def _run_interactive_menu() -> None:
         ),
         _MenuAction(
             "5",
+            "Exportar relatório HTML",
+            "Gera um relatório visual (departamento > usuários > dashboards)",
+            lambda: export_report(
+                "", IntPrompt.ask("Considerar ociosa após quantos dias sem acesso?", default=30)
+            ),
+        ),
+        _MenuAction(
+            "6",
             "Sincronizar workspaces",
             "Descobre e atualiza os workspaces do Power BI",
             sync_workspaces,
         ),
         _MenuAction(
-            "6",
+            "7",
             "Listar workspaces",
             "Lista os workspaces do Power BI direto da API",
             lambda: list_workspaces(
@@ -505,13 +564,13 @@ def _run_interactive_menu() -> None:
             ),
         ),
         _MenuAction(
-            "7",
+            "8",
             "Verificar saúde da configuração",
             "Confere se as credenciais e o banco estão OK",
             health_check,
         ),
         _MenuAction(
-            "8",
+            "9",
             "Ver configuração atual",
             "Mostra environment, banco (mascarado) e endpoints",
             show_config,
