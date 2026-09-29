@@ -66,6 +66,32 @@ class PowerBIClient:
             response.raise_for_status()
             return response.json()
 
+    async def get_all_workspaces(self, page_size: int = 100) -> list[dict]:
+        """Fetch every workspace exposed by the Power BI groups endpoint.
+
+        ``get_workspaces`` deliberately remains a single-page operation for
+        interactive callers. Synchronization flows should use this method so
+        their result is not silently limited to the first page.
+        """
+        if page_size < 1:
+            raise ValueError("page_size must be at least 1")
+
+        workspaces: list[dict] = []
+        skip = 0
+        while True:
+            payload = await self.get_workspaces(skip=skip, top=page_size)
+            page = payload.get("value", []) if isinstance(payload, dict) else []
+            if not isinstance(page, list):
+                raise ValueError("Power BI workspaces response has an invalid 'value' field")
+
+            workspaces.extend(item for item in page if isinstance(item, dict))
+            if len(page) < page_size:
+                break
+            skip += len(page)
+
+        log.info("Fetched all workspaces", workspace_count=len(workspaces))
+        return workspaces
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
