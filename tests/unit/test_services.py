@@ -3,6 +3,7 @@ Unit tests for application services.
 """
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -98,50 +99,43 @@ class TestWorkspaceService:
 
 @pytest.mark.unit
 class TestUsageMetricsService:
-    async def test_sync_usage_metrics_walks_workspaces_datasets_reports_and_persists_metrics(self):
-        powerbi_client = AsyncMock()
-        powerbi_client.get_workspaces.return_value = {"value": [{"id": "workspace-1", "name": "Finance"}]}
-        powerbi_client.get_workspace_datasets.return_value = {
-            "value": [{"id": "dataset-1", "name": "Semantic model"}]
-        }
-        powerbi_client.get_workspace_reports.return_value = {
-            "value": [{"id": "report-1", "datasetId": "dataset-1", "name": "Executive"}]
-        }
-        xmla_client = AsyncMock()
-        xmla_client.get_usage_metrics_table.return_value = {
-            "rows": [
-                {
-                    "ReportId": "report-1",
-                    "Date": "2026-06-01T00:00:00Z",
-                    "Views": 42,
-                    "UniqueViewers": 7,
-                }
-            ]
-        }
+    async def test_sync_usage_metrics_aggregates_views_and_unique_viewers_per_day(self):
+        activity_repository = SimpleNamespace(iter_report_view_events=lambda: iter([
+            SimpleNamespace(details={"ReportId": "report-1", "WorkspaceId": "workspace-1"},
+                            resource_id="report-1", user_id="A@example.com",
+                            event_time=datetime(2026, 6, 1, 10, tzinfo=UTC)),
+            SimpleNamespace(details={"ReportId": "report-1", "WorkspaceId": "workspace-1"},
+                            resource_id="report-1", user_id="a@example.com",
+                            event_time=datetime(2026, 6, 1, 12, tzinfo=UTC)),
+            SimpleNamespace(details={"ReportId": "report-1", "WorkspaceId": "workspace-1"},
+                            resource_id="report-1", user_id="b@example.com",
+                            event_time=datetime(2026, 6, 1, 14, tzinfo=UTC)),
+            SimpleNamespace(details={"ReportId": "report-1", "WorkspaceId": "workspace-1"},
+                            resource_id="report-1", user_id="b@example.com",
+                            event_time=datetime(2026, 6, 2, 9, tzinfo=UTC)),
+            SimpleNamespace(details={}, resource_id="report-2", user_id="c@example.com",
+                            event_time=datetime(2026, 6, 1, 9, tzinfo=UTC)),
+        ]))
         repository = UpsertRepository()
 
-        count = await UsageMetricsService(powerbi_client, xmla_client, repository).sync_usage_metrics()
+        count = await UsageMetricsService(activity_repository, repository).sync_usage_metrics()
 
-        assert count == 1
-        powerbi_client.get_workspace_datasets.assert_awaited_once_with("workspace-1")
-        powerbi_client.get_workspace_reports.assert_awaited_once_with("workspace-1")
-        xmla_client.get_usage_metrics_table.assert_awaited_once_with("dataset-1")
-        assert len(repository.entities) == 1
+        assert count == 2
+        assert len(repository.entities) == 2
         metric = repository.entities[0]
         assert isinstance(metric, UsageMetric)
         assert metric.report_id == "report-1"
         assert metric.workspace_id == "workspace-1"
-        assert metric.views == 42
-        assert metric.unique_viewers == 7
+        assert metric.metric_date == datetime(2026, 6, 1)
+        assert metric.views == 3
+        assert metric.unique_viewers == 2
+        assert repository.entities[1].views == 1
 
     async def test_sync_usage_metrics_wraps_errors_with_context(self):
-        powerbi_client = AsyncMock()
-        powerbi_client.get_workspaces.return_value = {"value": [{"id": "workspace-1"}]}
-        powerbi_client.get_workspace_datasets.side_effect = RuntimeError("datasets failed")
-        xmla_client = AsyncMock()
+        activity_repository = SimpleNamespace(iter_report_view_events=lambda: (_ for _ in ()).throw(RuntimeError("database failed")))
 
         with pytest.raises(RuntimeError, match="Usage metrics synchronization failed"):
-            await UsageMetricsService(powerbi_client, xmla_client, UpsertRepository()).sync_usage_metrics()
+            await UsageMetricsService(activity_repository, UpsertRepository()).sync_usage_metrics()
 
 
 @pytest.mark.unit

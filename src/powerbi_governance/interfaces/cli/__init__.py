@@ -169,15 +169,14 @@ def sync_workspaces() -> None:
 
 @app.command()
 def sync_usage_metrics() -> None:
-    """Synchronize usage metrics from Power BI"""
+    """Aggregate report usage from previously synchronized activity events."""
     console.print("[bold blue]📊 Syncing usage metrics...[/bold blue]")
 
     context: CliContext | None = None
     try:
         context = _build_cli_context()
         service = UsageMetricsService(
-            context.powerbi_client,
-            context.xmla_client,
+            context.activity_event_repository,
             context.usage_metric_repository,
         )
         metrics_count = _run_async(service.sync_usage_metrics())

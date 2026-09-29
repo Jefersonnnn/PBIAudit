@@ -187,22 +187,20 @@ class UsageMetricsService:
     Handles collection, aggregation and storage of usage metrics.
     """
 
-    def __init__(self, powerbi_client, xmla_client, repository) -> None:
+    def __init__(self, activity_repository, repository) -> None:
         """
         Initialize usage metrics service.
 
         Args:
-            powerbi_client: Power BI API client
-            xmla_client: XMLA client for DAX queries
-            repository: Repository for persistence
+            activity_repository: Repository containing synchronized audit events
+            repository: Usage metric repository for persistence
         """
-        self.powerbi_client = powerbi_client
-        self.xmla_client = xmla_client
+        self.activity_repository = activity_repository
         self.repository = repository
 
     async def sync_usage_metrics(self) -> int:
         """
-        Synchronize usage metrics from Power BI.
+        Aggregate daily report opens from synchronized Power BI audit events.
 
         Returns:
             Number of metrics synchronized
@@ -210,103 +208,46 @@ class UsageMetricsService:
         log.info("Starting usage metrics synchronization")
 
         try:
-            workspaces = _items_from_response(await self.powerbi_client.get_workspaces(), "workspaces")
-            metrics_count = 0
-            report_count = 0
-            dataset_count = 0
-
-            for workspace in workspaces:
-                workspace_id = str(_first_present(workspace, "id", "workspaceId", "groupId", default=""))
-                if not workspace_id:
-                    log.warning("Skipping usage metric workspace without identifier", workspace=workspace)
+            daily: dict[tuple[str, str, datetime], dict[str, Any]] = {}
+            skipped = 0
+            for event in self.activity_repository.iter_report_view_events():
+                details = event.details if isinstance(event.details, Mapping) else {}
+                report_id = _first_present(details, "ReportId", "reportId", "report_id", default=event.resource_id)
+                workspace_id = _first_present(details, "WorkspaceId", "workspaceId", "workspace_id")
+                if not report_id or not workspace_id:
+                    skipped += 1
                     continue
 
-                datasets = _items_from_response(
-                    await self.powerbi_client.get_workspace_datasets(workspace_id), "datasets"
+                event_time = event.event_time
+                if event_time.tzinfo is not None:
+                    event_time = event_time.astimezone(UTC)
+                metric_date = event_time.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+                key = (str(report_id), str(workspace_id), metric_date)
+                bucket = daily.setdefault(key, {"views": 0, "viewers": set()})
+                bucket["views"] += 1
+                if event.user_id:
+                    bucket["viewers"].add(event.user_id.lower())
+
+            for (report_id, workspace_id, metric_date), bucket in daily.items():
+                metric = UsageMetric(
+                    report_id=report_id,
+                    workspace_id=workspace_id,
+                    metric_date=metric_date,
+                    views=bucket["views"],
+                    unique_viewers=len(bucket["viewers"]),
                 )
-                reports = _items_from_response(await self.powerbi_client.get_workspace_reports(workspace_id), "reports")
-                dataset_count += len(datasets)
-                report_count += len(reports)
-                reports_by_dataset: dict[str, list[Mapping[str, Any]]] = {}
-
-                for report in reports:
-                    if isinstance(report, Mapping):
-                        dataset_id = _first_present(report, "datasetId", "dataset_id")
-                        if dataset_id:
-                            reports_by_dataset.setdefault(str(dataset_id), []).append(report)
-
-                for dataset in datasets:
-                    if not isinstance(dataset, Mapping):
-                        log.warning("Skipping invalid dataset payload", workspace_id=workspace_id)
-                        continue
-
-                    dataset_id = str(_first_present(dataset, "id", "datasetId", default=""))
-                    if not dataset_id:
-                        log.warning("Skipping dataset without identifier", workspace_id=workspace_id, dataset=dataset)
-                        continue
-
-                    metrics_payload = await self.xmla_client.get_usage_metrics_table(dataset_id)
-                    metric_rows = _items_from_response(metrics_payload, "metrics", "usageMetrics")
-                    for metric in self._normalize_usage_metrics(
-                        metric_rows,
-                        workspace_id=workspace_id,
-                        dataset_id=dataset_id,
-                        reports=reports_by_dataset.get(dataset_id, []),
-                    ):
-                        await _persist_entity(self.repository, metric, metric.report_id)
-                        metrics_count += 1
+                await _persist_entity(self.repository, metric, metric.report_id)
 
             log.info(
                 "Usage metrics synchronization completed",
-                workspace_count=len(workspaces),
-                dataset_count=dataset_count,
-                report_count=report_count,
-                synchronized_count=metrics_count,
+                synchronized_count=len(daily),
+                skipped_events=skipped,
             )
-            return metrics_count
+            return len(daily)
 
         except Exception as e:
             log.exception("Usage metrics synchronization failed", error=str(e))
             raise RuntimeError(f"Usage metrics synchronization failed: {e}") from e
-
-    def _normalize_usage_metrics(
-        self,
-        rows: Iterable[Any],
-        *,
-        workspace_id: str,
-        dataset_id: str,
-        reports: list[Mapping[str, Any]],
-    ) -> list[UsageMetric]:
-        """Normalize XMLA usage metric rows into domain entities."""
-        metrics: list[UsageMetric] = []
-        default_report = reports[0] if reports else {}
-
-        for row in rows:
-            if not isinstance(row, Mapping):
-                log.warning("Skipping invalid usage metric payload", dataset_id=dataset_id)
-                continue
-
-            report_id = str(
-                _first_present(row, "report_id", "reportId", "ReportId", default="")
-                or _first_present(default_report, "id", "reportId", default=dataset_id)
-            )
-            metric_date_value = _first_present(row, "metric_date", "metricDate", "Date", "date")
-            if metric_date_value is None:
-                log.warning("Skipping usage metric without metric date", dataset_id=dataset_id, report_id=report_id)
-                continue
-
-            metrics.append(
-                UsageMetric(
-                    report_id=report_id,
-                    workspace_id=str(_first_present(row, "workspace_id", "workspaceId", default=workspace_id)),
-                    metric_date=_parse_datetime(metric_date_value),
-                    views=int(_first_present(row, "views", "Views", "viewCount", default=0) or 0),
-                    unique_viewers=int(
-                        _first_present(row, "unique_viewers", "uniqueViewers", "UniqueViewers", default=0) or 0
-                    ),
-                )
-            )
-        return metrics
 
 
 class ActivityEventsService:

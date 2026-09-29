@@ -146,7 +146,10 @@ Discovers and synchronizes all Power BI workspaces.
 ```bash
 poetry run pbi-governance sync-usage-metrics
 ```
-Collects usage metrics for all reports.
+Aggregates daily report opens and unique viewers from locally synchronized
+`ViewReport` activity events. Run `sync-activity-events` first; only collected
+days are represented, and events without report or workspace IDs are skipped.
+These audit event counts can differ from Power BI's built-in page view metrics.
 
 #### Sync Activity Events
 ```bash
