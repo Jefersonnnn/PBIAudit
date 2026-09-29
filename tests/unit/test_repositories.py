@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from powerbi_governance.application.services import UsageMetricsService
 from powerbi_governance.domain.entities import ActivityEvent, LicenseAssignment, UsageMetric, User, Workspace
 from powerbi_governance.infrastructure.database.models import Base
 from powerbi_governance.infrastructure.repositories import (
@@ -242,6 +243,41 @@ class TestLicenseAssignmentRepository:
 @pytest.mark.unit
 class TestActivityEventRepository:
     """Tests for activity event persistence and per-user aggregation."""
+
+    def test_iter_report_view_events_filters_other_activities(self, db_session: Session) -> None:
+        repository = ActivityEventRepository(db_session)
+        for event_id, activity in [("view-1", "ViewReport"), ("refresh-1", "RefreshDataset")]:
+            repository.create(
+                ActivityEvent(
+                    event_id=event_id,
+                    user_id="user@example.com",
+                    activity=activity,
+                    event_time=datetime(2026, 6, 1),
+                    details={"ReportId": "report-1", "WorkspaceId": "workspace-1"},
+                )
+            )
+
+        assert [event.event_id for event in repository.iter_report_view_events()] == ["view-1"]
+
+    async def test_usage_metric_sync_is_repeatable(self, db_session: Session) -> None:
+        activity_repository = ActivityEventRepository(db_session)
+        activity_repository.create(
+            ActivityEvent(
+                event_id="view-1",
+                user_id="user@example.com",
+                activity="ViewReport",
+                event_time=datetime(2026, 6, 1, 12),
+                details={"ReportId": "report-1", "WorkspaceId": "workspace-1"},
+            )
+        )
+        metric_repository = UsageMetricRepository(db_session)
+        service = UsageMetricsService(activity_repository, metric_repository)
+
+        assert await service.sync_usage_metrics() == 1
+        assert await service.sync_usage_metrics() == 1
+        metrics = metric_repository.get_by_workspace("workspace-1")
+        assert len(metrics) == 1
+        assert (metrics[0].report_id, metrics[0].views, metrics[0].unique_viewers) == ("report-1", 1, 1)
 
     def test_get_usage_summary_by_user_aggregates_last_access_and_resources(self, db_session: Session) -> None:
         """Summary should group by lowercased user_id and collect distinct resources."""

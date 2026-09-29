@@ -58,7 +58,7 @@ def test_sync_workspaces_runs_service_and_prints_count(monkeypatch):
     assert context.closed is True
 
 
-def test_sync_usage_metrics_wires_powerbi_xmla_and_repository(monkeypatch):
+def test_sync_usage_metrics_wires_activity_and_metric_repositories(monkeypatch):
     """sync-usage-metrics wires the usage metrics service dependencies."""
     context = _make_context()
     service = Mock()
@@ -77,8 +77,7 @@ def test_sync_usage_metrics_wires_powerbi_xmla_and_repository(monkeypatch):
     assert result.exit_code == 0
     assert "Synchronized 3 usage metrics" in result.output
     service_factory.assert_called_once_with(
-        context.powerbi_client,
-        context.xmla_client,
+        context.activity_event_repository,
         context.usage_metric_repository,
     )
     service.sync_usage_metrics.assert_called_once_with()

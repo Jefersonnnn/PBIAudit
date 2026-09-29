@@ -44,15 +44,10 @@ class XmlaClient:
             dataset_id: Power BI dataset ID
             query: DAX query string
             
-        Returns:
-            Query result as dictionary
-            
-        Note:
-            Implementation pending PyADOMD integration
+        Raises:
+            NotImplementedError: XMLA query support is still pending
         """
-        log.info("Executing DAX query", dataset_id=dataset_id, query_preview=query[:100])
-        # Implementation to be added
-        return {}
+        raise NotImplementedError("XMLA DAX queries are not implemented")
 
     async def get_usage_metrics_table(self, dataset_id: str) -> dict:
         """
@@ -61,15 +56,10 @@ class XmlaClient:
         Args:
             dataset_id: Power BI dataset ID
             
-        Returns:
-            Usage metrics data
-            
-        Note:
-            Implementation pending PyADOMD integration
+        Raises:
+            NotImplementedError: XMLA query support is still pending
         """
-        log.info("Fetching usage metrics", dataset_id=dataset_id)
-        # Implementation to be added
-        return {}
+        raise NotImplementedError("XMLA usage metrics queries are not implemented")
 
 
 __all__ = ["XmlaClient"]

@@ -9,6 +9,7 @@ before re-raising the original exception.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import datetime, timedelta
 from typing import Any, Generic, TypeVar, List
 from uuid import uuid4
@@ -256,6 +257,11 @@ class ActivityEventRepository(BaseRepository[ActivityEventModel]):
 
     model_class = ActivityEventModel
     external_key = "event_id"
+
+    def iter_report_view_events(self) -> Iterator[ActivityEventModel]:
+        """Stream report open events for daily usage aggregation without a row cap."""
+        statement = select(ActivityEventModel).where(func.lower(ActivityEventModel.activity) == "viewreport")
+        yield from self.session.scalars(statement).yield_per(1_000)
 
     def get_recent_events(self, days: int = 1) -> List[ActivityEventModel]:
         """Get activity events from the last N days."""
