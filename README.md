@@ -95,7 +95,7 @@ poetry run ruff check .
 poetry run mypy src
 ```
 
-Consulte [CONTRIBUTING.md](CONTRIBUTING.md) antes de enviar uma alteração.
+Guias adicionais: [início rápido](QUICKSTART.md), [configuração](docs/CONFIG.md), [arquitetura](docs/ARCHITECTURE.md) e [desenvolvimento](docs/DEVELOPMENT.md).
 
 ## Segurança
 
