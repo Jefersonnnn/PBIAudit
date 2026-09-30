@@ -186,7 +186,7 @@ poetry run pbi-governance sync-activity-events 28
 poetry run pbi-governance license-report --inactive-days 30
 ```
 `license-report` reads the local database (populated by `sync-licenses` and
-`sync-activity-events`) and cross-references licensed users with their actual Power BI activity to
+`sync-activity-events`) and cross-references licensed users with their report and dashboard views to
 show, per user: name, email, job title/department (from Azure AD), license type, last access,
 which dashboards/reports they used, and whether the license looks idle or was never used — the
 report you'd use to reclaim unused seats out of a fixed license pool. Run the two sync commands

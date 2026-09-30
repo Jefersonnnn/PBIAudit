@@ -54,6 +54,7 @@ class LicenseType(str, Enum):
 class ActivityType(str, Enum):
     """Activity types from audit logs"""
     VIEW_REPORT = "ViewReport"
+    VIEW_DASHBOARD = "ViewDashboard"
     EDIT_REPORT = "EditReport"
     CREATE_REPORT = "CreateReport"
     DELETE_REPORT = "DeleteReport"
