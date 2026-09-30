@@ -273,13 +273,12 @@ def license_report(
         table.add_column("Status")
 
         idle_count = 0
-        never_used_count = 0
+        no_activity_recorded_count = 0
 
         for row in rows:
             if row.last_access is None:
-                status = "[red]● Never used[/red]"
-                never_used_count += 1
-                idle_count += 1
+                status = "[red]● No local activity recorded[/red]"
+                no_activity_recorded_count += 1
             elif row.days_since_access is not None and row.days_since_access >= inactive_days:
                 status = "[yellow]● Idle[/yellow]"
                 idle_count += 1
@@ -296,7 +295,7 @@ def license_report(
                 row.job_title or "-",
                 row.department or "-",
                 row.license_type,
-                row.last_access.strftime("%Y-%m-%d") if row.last_access else "Never",
+                row.last_access.strftime("%Y-%m-%d") if row.last_access else "No local record",
                 str(row.days_since_access) if row.days_since_access is not None else "-",
                 dashboards_preview or "-",
                 status,
@@ -305,8 +304,8 @@ def license_report(
         console.print(table)
         console.print(
             f"\n[bold]{len(rows)}[/bold] license(s) audited — "
-            f"[yellow]{idle_count}[/yellow] idle (>{inactive_days}d or never used), "
-            f"of which [red]{never_used_count}[/red] never accessed Power BI."
+            f"[yellow]{idle_count}[/yellow] idle for more than {inactive_days} day(s), "
+            f"[red]{no_activity_recorded_count}[/red] without locally recorded activity."
         )
 
     except Exception as e:
@@ -353,7 +352,7 @@ def department_report(
         table.add_column("Licenças", justify="right")
         table.add_column("Ativas", style="green", justify="right")
         table.add_column("Ociosas", style="yellow", justify="right")
-        table.add_column("Nunca usadas", style="red", justify="right")
+        table.add_column("Sem registro", style="red", justify="right")
         table.add_column("% Ociosa", justify="right")
 
         for summary in summaries:
@@ -362,14 +361,15 @@ def department_report(
                 str(summary.total_licenses),
                 str(summary.active_count),
                 str(summary.idle_count),
-                str(summary.never_used_count),
+                str(summary.no_activity_recorded_count),
                 f"{summary.idle_percentage:.0f}%",
             )
 
         console.print(table)
         console.print(
             f"\n[bold]{len(summaries)}[/bold] department(s) audited "
-            f"(licença ociosa = sem acesso há {inactive_days}+ dias ou nunca usada)."
+            f"(licença ociosa = acesso registrado há {inactive_days}+ dias; "
+            "sem registro local requer verificação)."
         )
 
     except Exception as e:

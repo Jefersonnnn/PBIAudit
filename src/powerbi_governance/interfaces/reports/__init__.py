@@ -41,8 +41,8 @@ class _GerenciaGroup:
         return sum(department.idle_count for department in self.departments)
 
     @property
-    def never_used_count(self) -> int:
-        return sum(department.never_used_count for department in self.departments)
+    def no_activity_recorded_count(self) -> int:
+        return sum(department.no_activity_recorded_count for department in self.departments)
 
     @property
     def idle_percentage(self) -> float:
@@ -83,7 +83,7 @@ def _escape(value: object) -> str:
 def _status_label_and_class(row: LicenseUsageRow, inactive_days: int) -> tuple[str, str]:
     """Return the (label, CSS class) pair describing a license row's usage status."""
     if row.last_access is None:
-        return "Nunca usada", "status-never"
+        return "Sem atividade registrada", "status-unrecorded"
     if row.days_since_access is not None and row.days_since_access >= inactive_days:
         return "Ociosa", "status-idle"
     return "Ativa", "status-active"
@@ -102,7 +102,7 @@ def _render_user(row: LicenseUsageRow, inactive_days: int) -> str:
     label, css_class = _status_label_and_class(row, inactive_days)
     status_key = css_class.removeprefix("status-")
     search_text = f"{row.display_name} {row.email}"
-    last_access = row.last_access.strftime("%d/%m/%Y") if row.last_access else "Nunca"
+    last_access = row.last_access.strftime("%d/%m/%Y") if row.last_access else "Sem registro local"
     idle_days = str(row.days_since_access) if row.days_since_access is not None else "-"
 
     return f"""
@@ -149,7 +149,7 @@ def _render_department(
             <span class="dept-total">{summary.total_licenses} licença(s)</span>
             <span class="badge status-active">{summary.active_count} ativa(s)</span>
             <span class="badge status-idle">{summary.idle_count} ociosa(s)</span>
-            <span class="badge status-never">{summary.never_used_count} nunca usada(s)</span>
+            <span class="badge status-unrecorded">{summary.no_activity_recorded_count} sem registro</span>
             <span class="dept-pct">{summary.idle_percentage:.0f}% ociosa</span>
           </span>
         </summary>
@@ -181,7 +181,7 @@ def _render_gerencia(
             <span class="dept-total">{group.total_licenses} licença(s)</span>
             <span class="badge status-active">{group.active_count} ativa(s)</span>
             <span class="badge status-idle">{group.idle_count} ociosa(s)</span>
-            <span class="badge status-never">{group.never_used_count} nunca usada(s)</span>
+            <span class="badge status-unrecorded">{group.no_activity_recorded_count} sem registro</span>
             <span class="dept-pct">{group.idle_percentage:.0f}% ociosa</span>
           </span>
         </summary>
@@ -235,7 +235,7 @@ def render_license_usage_report(
     total_licenses = sum(summary.total_licenses for summary in department_summaries)
     total_active = sum(summary.active_count for summary in department_summaries)
     total_idle = sum(summary.idle_count for summary in department_summaries)
-    total_never_used = sum(summary.never_used_count for summary in department_summaries)
+    total_no_activity_recorded = sum(summary.no_activity_recorded_count for summary in department_summaries)
 
     mapping = gerencia_mapping or GerenciaMapping()
     gerencia_groups = _group_by_gerencia(department_summaries, mapping)
@@ -261,8 +261,9 @@ def render_license_usage_report(
     <h1>Auditoria de Uso de Licenças Power BI</h1>
     <p class="subtitle">
       Gerado em {generated_at.strftime("%d/%m/%Y %H:%M")} UTC ·
-      licença considerada ociosa após {inactive_days}+ dias sem acesso
+      licença considerada ociosa após {inactive_days}+ dias sem acesso registrado
     </p>
+    <p class="subtitle">“Sem atividade registrada” indica ausência de eventos de visualização no histórico local.</p>
   </header>
 
   <section class="summary-cards">
@@ -278,9 +279,9 @@ def render_license_usage_report(
       <span class="card-value">{total_idle}</span>
       <span class="card-label">Ociosas</span>
     </div>
-    <div class="card card-never">
-      <span class="card-value">{total_never_used}</span>
-      <span class="card-label">Nunca usadas</span>
+    <div class="card card-unrecorded">
+      <span class="card-value">{total_no_activity_recorded}</span>
+      <span class="card-label">Sem atividade registrada</span>
     </div>
   </section>
 
@@ -291,7 +292,7 @@ def render_license_usage_report(
     </label>
     <label class="filter-toggle">
       <input type="checkbox" id="filter-unused">
-      <span>Somente licenças não usadas <span class="filter-hint">(ociosas e nunca usadas)</span></span>
+      <span>Somente licenças para revisão <span class="filter-hint">(ociosas ou sem registro local)</span></span>
     </label>
     <button type="button" id="filter-clear">Limpar</button>
     <span class="filter-count" id="filter-count" aria-live="polite"></span>
@@ -361,7 +362,7 @@ _STYLE = """
   .card-label { display: block; margin-top: 4px; color: var(--muted); font-size: 13px; }
   .card-active .card-value { color: var(--green); }
   .card-idle .card-value { color: var(--amber); }
-  .card-never .card-value { color: var(--red); }
+  .card-unrecorded .card-value { color: var(--red); }
 
   details.gerencia {
     background: var(--card-bg);
@@ -452,7 +453,7 @@ _STYLE = """
   }
   .status-active, .badge.status-active { color: var(--green); background: var(--green-bg); }
   .status-idle, .badge.status-idle { color: var(--amber); background: var(--amber-bg); }
-  .status-never, .badge.status-never { color: var(--red); background: var(--red-bg); }
+  .status-unrecorded, .badge.status-unrecorded { color: var(--red); background: var(--red-bg); }
 
   [hidden] { display: none !important; }
   .sr-only {
@@ -554,7 +555,7 @@ _SCRIPT = r"""
       users.forEach(function (user, index) {
         var status = user.getAttribute("data-status");
         var matchesName = query === "" || searchIndex[index].indexOf(query) !== -1;
-        var matchesStatus = !onlyUnused || status === "idle" || status === "never";
+        var matchesStatus = !onlyUnused || status === "idle" || status === "unrecorded";
         var visible = matchesName && matchesStatus;
         user.hidden = !visible;
         if (visible) { shown += 1; }
