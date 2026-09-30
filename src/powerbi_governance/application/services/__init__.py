@@ -11,8 +11,14 @@ from typing import Any, Optional
 import structlog
 
 from powerbi_governance.domain.entities import ActivityEvent, LicenseAssignment, UsageMetric, User, Workspace
+from powerbi_governance.domain.enums import ActivityType
 
 log = structlog.get_logger(__name__)
+
+_REPORT_USAGE_ACTIVITY_TYPES = (
+    ActivityType.VIEW_REPORT.value,
+    ActivityType.VIEW_DASHBOARD.value,
+)
 
 
 async def _maybe_await(value: Any) -> Any:
@@ -271,9 +277,12 @@ class ActivityEventsService:
         """
         Synchronize activity events from audit logs.
 
-        Queries one full UTC calendar day at a time (rather than a rolling 24h
-        window), since the Power BI Admin API requires startDateTime/endDateTime
-        to fall on the same UTC day and only retains 28 days of history.
+        Queries report and dashboard views one UTC calendar day at a time
+        (rather than a rolling 24h window), since the Power BI Admin API
+        requires startDateTime/endDateTime to fall on the same UTC day and
+        only retains 28 days of history. The API supports equality filters for
+        one activity at a time, so each relevant activity is requested
+        separately.
 
         Args:
             days_back: Number of days to collect events for (max 28)
@@ -300,32 +309,34 @@ class ActivityEventsService:
                 day_end = day_start + timedelta(days=1, milliseconds=-1)
 
                 window_count = 0
-                continuation_uri: Optional[str] = None
-                while True:
-                    if continuation_uri:
-                        events_payload = await self.powerbi_client.get_activity_events(
-                            continuation_uri=continuation_uri
-                        )
-                    else:
-                        events_payload = await self.powerbi_client.get_activity_events(
-                            start_date_time=_format_activity_event_datetime(day_start),
-                            end_date_time=_format_activity_event_datetime(day_end),
-                        )
+                for activity_type in _REPORT_USAGE_ACTIVITY_TYPES:
+                    continuation_uri: Optional[str] = None
+                    while True:
+                        if continuation_uri:
+                            events_payload = await self.powerbi_client.get_activity_events(
+                                continuation_uri=continuation_uri
+                            )
+                        else:
+                            events_payload = await self.powerbi_client.get_activity_events(
+                                start_date_time=_format_activity_event_datetime(day_start),
+                                end_date_time=_format_activity_event_datetime(day_end),
+                                filter_expression=f"Activity eq '{activity_type}'",
+                            )
 
-                    raw_events = _items_from_response(events_payload)
-                    for raw_event in raw_events:
-                        event = self._normalize_activity_event(raw_event)
-                        if event is None:
-                            continue
-                        await _persist_entity(self.repository, event, event.event_id)
-                        events_count += 1
-                        window_count += 1
+                        raw_events = _items_from_response(events_payload)
+                        for raw_event in raw_events:
+                            event = self._normalize_activity_event(raw_event)
+                            if event is None:
+                                continue
+                            await _persist_entity(self.repository, event, event.event_id)
+                            events_count += 1
+                            window_count += 1
 
-                    continuation_uri = (
-                        events_payload.get("continuationUri") if isinstance(events_payload, Mapping) else None
-                    )
-                    if not continuation_uri:
-                        break
+                        continuation_uri = (
+                            events_payload.get("continuationUri") if isinstance(events_payload, Mapping) else None
+                        )
+                        if not continuation_uri:
+                            break
 
                 log.info(
                     "Activity events window synchronized",

@@ -157,14 +157,22 @@ class TestActivityEventsService:
 
         count = await ActivityEventsService(powerbi_client, repository).sync_activity_events(days_back=2)
 
-        assert count == 2
-        assert powerbi_client.get_activity_events.await_count == 2
+        assert count == 4
+        assert powerbi_client.get_activity_events.await_count == 4
         for call in powerbi_client.get_activity_events.await_args_list:
             start = call.kwargs["start_date_time"]
             end = call.kwargs["end_date_time"]
             assert start[:10] == end[:10]  # same UTC calendar day, per the API's requirement
             assert start.endswith("Z") and end.endswith("Z")
-        assert len(repository.entities) == 2
+        assert [
+            call.kwargs["filter_expression"] for call in powerbi_client.get_activity_events.await_args_list
+        ] == [
+            "Activity eq 'ViewReport'",
+            "Activity eq 'ViewDashboard'",
+            "Activity eq 'ViewReport'",
+            "Activity eq 'ViewDashboard'",
+        ]
+        assert len(repository.entities) == 4
         event = repository.entities[0]
         assert isinstance(event, ActivityEvent)
         assert event.event_id == "event-1"
@@ -182,18 +190,23 @@ class TestActivityEventsService:
             {
                 "activityEventEntities": [{"Id": "event-2", "UserId": "b@example.com", "CreationTime": "2026-06-02T02:00:00Z"}],
             },
+            {
+                "activityEventEntities": [{"Id": "event-3", "UserId": "c@example.com", "CreationTime": "2026-06-02T03:00:00Z"}],
+            },
         ]
         repository = UpsertRepository()
 
         count = await ActivityEventsService(powerbi_client, repository).sync_activity_events(days_back=1)
 
-        assert count == 2
-        assert powerbi_client.get_activity_events.await_count == 2
-        first_call, second_call = powerbi_client.get_activity_events.await_args_list
+        assert count == 3
+        assert powerbi_client.get_activity_events.await_count == 3
+        first_call, second_call, third_call = powerbi_client.get_activity_events.await_args_list
         assert "start_date_time" in first_call.kwargs
+        assert first_call.kwargs["filter_expression"] == "Activity eq 'ViewReport'"
         assert second_call.kwargs.get("continuation_uri") == (
             "https://api.powerbi.com/v1.0/myorg/admin/activityevents?continuationToken=abc"
         )
+        assert third_call.kwargs["filter_expression"] == "Activity eq 'ViewDashboard'"
 
     async def test_sync_activity_events_rejects_invalid_days_back(self):
         with pytest.raises(RuntimeError, match="days_back must be at least 1"):
