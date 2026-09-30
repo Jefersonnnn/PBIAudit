@@ -6,8 +6,8 @@ authors = ["Jeferson Machado <devops@yourcompany.com>"]
 readme = "README.md"
 license = "MIT"
 packages = [{include = "powerbi_governance", from = "src"}]
-repository = "https://github.com/yourorg/powerbi-governance"
-documentation = "https://powerbi-governance.readthedocs.io"
+repository = "https://github.com/Jefersonnnn/PBIAudit"
+documentation = "https://github.com/Jefersonnnn/PBIAudit#readme"
 keywords = ["power-bi", "governance", "audit", "data-engineering"]
 classifiers = [
     "Development Status :: 4 - Beta",
