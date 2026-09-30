@@ -61,23 +61,21 @@ class FakeUserRepository:
 class TestWorkspaceService:
     async def test_sync_workspaces_normalizes_and_upserts_powerbi_payload(self):
         powerbi_client = AsyncMock()
-        powerbi_client.get_workspaces.return_value = {
-            "value": [
-                {
-                    "id": "workspace-1",
-                    "name": "Finance",
-                    "description": "Finance reporting",
-                    "isOnDedicatedCapacity": True,
-                    "capacityId": "capacity-1",
-                    "state": "Active",
-                },
-                {
-                    "workspaceId": "workspace-2",
-                    "displayName": "Sales",
-                    "state": "Deleted",
-                },
-            ]
-        }
+        powerbi_client.get_all_workspaces.return_value = [
+            {
+                "id": "workspace-1",
+                "name": "Finance",
+                "description": "Finance reporting",
+                "isOnDedicatedCapacity": True,
+                "capacityId": "capacity-1",
+                "state": "Active",
+            },
+            {
+                "workspaceId": "workspace-2",
+                "displayName": "Sales",
+                "state": "Deleted",
+            },
+        ]
         repository = UpsertRepository()
 
         count = await WorkspaceService(powerbi_client, repository).sync_workspaces()
@@ -88,10 +86,11 @@ class TestWorkspaceService:
         assert repository.entities[0].is_premium is True
         assert repository.entities[0].capacity_id == "capacity-1"
         assert repository.entities[1].name == "Sales"
+        powerbi_client.get_all_workspaces.assert_awaited_once_with()
 
     async def test_sync_workspaces_wraps_errors_with_context(self):
         powerbi_client = AsyncMock()
-        powerbi_client.get_workspaces.side_effect = RuntimeError("api unavailable")
+        powerbi_client.get_all_workspaces.side_effect = RuntimeError("api unavailable")
 
         with pytest.raises(RuntimeError, match="Workspace synchronization failed"):
             await WorkspaceService(powerbi_client, UpsertRepository()).sync_workspaces()
@@ -226,7 +225,7 @@ class TestUserService:
             ]
         }
         powerbi_client = AsyncMock()
-        powerbi_client.get_workspaces.return_value = {"value": [{"id": "workspace-1"}]}
+        powerbi_client.get_all_workspaces.return_value = [{"id": "workspace-1"}]
         powerbi_client.get_workspace_users.return_value = {
             "value": [
                 {

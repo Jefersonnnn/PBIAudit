@@ -116,8 +116,7 @@ class WorkspaceService:
         log.info("Starting workspace synchronization")
 
         try:
-            workspaces_data = await self.powerbi_client.get_workspaces()
-            workspace_items = _items_from_response(workspaces_data, "workspaces")
+            workspace_items = await self.powerbi_client.get_all_workspaces()
 
             workspace_count = 0
             for item in workspace_items:
@@ -451,7 +450,7 @@ class UserService:
             if user is not None:
                 users[user.email.lower()] = user
 
-        workspaces = _items_from_response(await self.powerbi_client.get_workspaces(), "workspaces")
+        workspaces = await self.powerbi_client.get_all_workspaces()
         for workspace in workspaces:
             workspace_id = _first_present(workspace, "id", "workspaceId", "groupId")
             if not workspace_id:
