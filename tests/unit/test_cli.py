@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
 from typer.testing import CliRunner
 
 import powerbi_governance.interfaces.cli as cli_module
@@ -30,7 +31,9 @@ def _make_context():
         xmla_client=object(),
         workspace_repository=object(),
         usage_metric_repository=object(),
-        activity_event_repository=object(),
+        activity_event_repository=SimpleNamespace(get_usage_summary_by_user=lambda: {}),
+        license_repository=object(),
+        user_repository=object(),
         closed=False,
     )
 
@@ -69,7 +72,10 @@ def test_sync_usage_metrics_wires_activity_and_metric_repositories(monkeypatch):
     service.sync_usage_metrics = Mock(side_effect=sync_usage_metrics)
     service_factory = Mock(return_value=service)
 
-    monkeypatch.setattr(cli_module, "_build_cli_context", Mock(return_value=context))
+    local_context_builder = Mock(return_value=context)
+    remote_context_builder = Mock(side_effect=AssertionError("remote context must not be created"))
+    monkeypatch.setattr(cli_module, "_build_local_report_context", local_context_builder)
+    monkeypatch.setattr(cli_module, "_build_cli_context", remote_context_builder)
     monkeypatch.setattr(cli_module, "UsageMetricsService", service_factory)
 
     result = runner.invoke(app, ["sync-usage-metrics"])
@@ -81,6 +87,8 @@ def test_sync_usage_metrics_wires_activity_and_metric_repositories(monkeypatch):
         context.usage_metric_repository,
     )
     service.sync_usage_metrics.assert_called_once_with()
+    local_context_builder.assert_called_once_with()
+    remote_context_builder.assert_not_called()
     assert context.closed is True
 
 
@@ -120,6 +128,64 @@ def test_list_workspaces_fetches_data_and_populates_table(monkeypatch):
     assert "Operations" in result.output
     assert "Listed 2 workspaces (skip=1, top=2)" in result.output
     build_context.assert_called_once_with()
+    assert context.closed is True
+
+
+def test_build_local_report_context_skips_remote_authentication(monkeypatch):
+    """Local report dependencies are assembled without creating remote clients or tokens."""
+    settings = SimpleNamespace()
+    session = Mock()
+    database_manager = Mock()
+    database_manager.get_session.return_value = session
+
+    monkeypatch.setattr(cli_module, "get_settings", Mock(return_value=settings))
+    configure_logging = Mock()
+    monkeypatch.setattr(cli_module, "configure_logging", configure_logging)
+    monkeypatch.setattr(cli_module, "DatabaseManager", Mock(return_value=database_manager))
+    powerbi_authenticator = Mock()
+    graph_authenticator = Mock()
+    monkeypatch.setattr(cli_module, "MsalAuthenticator", powerbi_authenticator)
+    monkeypatch.setattr(cli_module, "MsalGraphAuthenticator", graph_authenticator)
+    powerbi_client = Mock()
+    graph_client = Mock()
+    xmla_client = Mock()
+    monkeypatch.setattr(cli_module, "PowerBIClient", powerbi_client)
+    monkeypatch.setattr(cli_module, "GraphClient", graph_client)
+    monkeypatch.setattr(cli_module, "XmlaClient", xmla_client)
+
+    context = cli_module._build_local_report_context()
+
+    configure_logging.assert_called_once_with(settings)
+    database_manager.initialize.assert_called_once_with()
+    database_manager.get_session.assert_called_once_with()
+    assert context.session is session
+    powerbi_authenticator.assert_not_called()
+    graph_authenticator.assert_not_called()
+    powerbi_client.assert_not_called()
+    graph_client.assert_not_called()
+    xmla_client.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "command", ["license-report", "department-report", "export-report"]
+)
+def test_local_report_commands_do_not_build_remote_context(monkeypatch, command):
+    """All report commands use only the local database context."""
+    context = _make_context()
+    local_context_builder = Mock(return_value=context)
+    remote_context_builder = Mock(side_effect=AssertionError("remote context must not be created"))
+    license_service = Mock()
+    license_service.build_usage_report.return_value = []
+
+    monkeypatch.setattr(cli_module, "_build_local_report_context", local_context_builder)
+    monkeypatch.setattr(cli_module, "_build_cli_context", remote_context_builder)
+    monkeypatch.setattr(cli_module, "LicenseService", Mock(return_value=license_service))
+
+    result = runner.invoke(app, [command])
+
+    assert result.exit_code == 0
+    local_context_builder.assert_called_once_with()
+    remote_context_builder.assert_not_called()
     assert context.closed is True
 
 

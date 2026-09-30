@@ -66,20 +66,14 @@ def main(ctx: typer.Context) -> None:
 
 
 @dataclass
-class CliContext:
-    """Runtime dependencies used by CLI commands."""
+class LocalReportContext:
+    """Runtime dependencies used by commands that read only the local database."""
 
     settings: Settings
-    powerbi_authenticator: MsalAuthenticator
-    graph_authenticator: MsalGraphAuthenticator
-    powerbi_client: PowerBIClient
-    graph_client: GraphClient
-    xmla_client: XmlaClient
     database_manager: DatabaseManager
     session: Session
-    workspace_repository: WorkspaceRepository
-    usage_metric_repository: UsageMetricRepository
     activity_event_repository: ActivityEventRepository
+    usage_metric_repository: UsageMetricRepository
     license_repository: LicenseAssignmentRepository
     user_repository: UserRepository
 
@@ -89,40 +83,67 @@ class CliContext:
         self.database_manager.close()
 
 
-def _build_cli_context() -> CliContext:
-    """Create settings, logging, authentication, clients, database and repositories."""
+@dataclass
+class CliContext(LocalReportContext):
+    """Runtime dependencies used by commands that synchronize or query remote APIs."""
+
+    powerbi_authenticator: MsalAuthenticator
+    graph_authenticator: MsalGraphAuthenticator
+    powerbi_client: PowerBIClient
+    graph_client: GraphClient
+    xmla_client: XmlaClient
+    workspace_repository: WorkspaceRepository
+
+
+def _build_local_report_context() -> LocalReportContext:
+    """Create database and repositories without authenticating against remote services."""
     settings = get_settings()
     configure_logging(settings)
-
-    powerbi_authenticator = MsalAuthenticator(settings)
-    powerbi_token = powerbi_authenticator.authenticate()["access_token"]
-
-    graph_authenticator = MsalGraphAuthenticator(settings)
-    graph_token = graph_authenticator.authenticate()["access_token"]
-
-    powerbi_client = PowerBIClient(settings, powerbi_token)
-    graph_client = GraphClient(settings, graph_token)
-    xmla_client = XmlaClient(settings)
 
     database_manager = DatabaseManager(settings)
     database_manager.initialize()
     session = database_manager.get_session()
 
-    return CliContext(
+    return LocalReportContext(
         settings=settings,
-        powerbi_authenticator=powerbi_authenticator,
-        graph_authenticator=graph_authenticator,
-        powerbi_client=powerbi_client,
-        graph_client=graph_client,
-        xmla_client=xmla_client,
         database_manager=database_manager,
         session=session,
-        workspace_repository=WorkspaceRepository(session),
-        usage_metric_repository=UsageMetricRepository(session),
         activity_event_repository=ActivityEventRepository(session),
+        usage_metric_repository=UsageMetricRepository(session),
         license_repository=LicenseAssignmentRepository(session),
         user_repository=UserRepository(session),
     )
+
+
+def _build_cli_context() -> CliContext:
+    """Create settings, logging, authentication, clients, database and repositories."""
+    local_context = _build_local_report_context()
+
+    try:
+        powerbi_authenticator = MsalAuthenticator(local_context.settings)
+        powerbi_token = powerbi_authenticator.authenticate()["access_token"]
+
+        graph_authenticator = MsalGraphAuthenticator(local_context.settings)
+        graph_token = graph_authenticator.authenticate()["access_token"]
+
+        return CliContext(
+            settings=local_context.settings,
+            database_manager=local_context.database_manager,
+            session=local_context.session,
+            activity_event_repository=local_context.activity_event_repository,
+            usage_metric_repository=local_context.usage_metric_repository,
+            license_repository=local_context.license_repository,
+            user_repository=local_context.user_repository,
+            powerbi_authenticator=powerbi_authenticator,
+            graph_authenticator=graph_authenticator,
+            powerbi_client=PowerBIClient(local_context.settings, powerbi_token),
+            graph_client=GraphClient(local_context.settings, graph_token),
+            xmla_client=XmlaClient(local_context.settings),
+            workspace_repository=WorkspaceRepository(local_context.session),
+        )
+    except Exception:
+        local_context.close()
+        raise
 
 
 def _run_async(awaitable: Awaitable[T]) -> T:
@@ -172,9 +193,9 @@ def sync_usage_metrics() -> None:
     """Aggregate report usage from previously synchronized activity events."""
     console.print("[bold blue]📊 Syncing usage metrics...[/bold blue]")
 
-    context: CliContext | None = None
+    context: LocalReportContext | None = None
     try:
-        context = _build_cli_context()
+        context = _build_local_report_context()
         service = UsageMetricsService(
             context.activity_event_repository,
             context.usage_metric_repository,
@@ -246,10 +267,10 @@ def license_report(
     """
     console.print("[bold blue]🔍 Building license usage report...[/bold blue]")
 
-    context: CliContext | None = None
+    context: LocalReportContext | None = None
     try:
-        context = _build_cli_context()
-        license_service = LicenseService(context.graph_client, context.license_repository, context.user_repository)
+        context = _build_local_report_context()
+        license_service = LicenseService(None, context.license_repository, context.user_repository)
 
         activity_summary = context.activity_event_repository.get_usage_summary_by_user()
         rows = license_service.build_usage_report(activity_summary)
@@ -330,10 +351,10 @@ def department_report(
     """
     console.print("[bold blue]🏢 Building department usage report...[/bold blue]")
 
-    context: CliContext | None = None
+    context: LocalReportContext | None = None
     try:
-        context = _build_cli_context()
-        license_service = LicenseService(context.graph_client, context.license_repository, context.user_repository)
+        context = _build_local_report_context()
+        license_service = LicenseService(None, context.license_repository, context.user_repository)
 
         activity_summary = context.activity_event_repository.get_usage_summary_by_user()
         rows = license_service.build_usage_report(activity_summary)
@@ -401,10 +422,10 @@ def export_report(
     """
     console.print("[bold blue]📄 Exporting HTML report...[/bold blue]")
 
-    context: CliContext | None = None
+    context: LocalReportContext | None = None
     try:
-        context = _build_cli_context()
-        license_service = LicenseService(context.graph_client, context.license_repository, context.user_repository)
+        context = _build_local_report_context()
+        license_service = LicenseService(None, context.license_repository, context.user_repository)
 
         activity_summary = context.activity_event_repository.get_usage_summary_by_user()
         rows = license_service.build_usage_report(activity_summary)
