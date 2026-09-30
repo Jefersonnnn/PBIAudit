@@ -156,7 +156,8 @@ These audit event counts can differ from Power BI's built-in page view metrics.
 poetry run pbi-governance sync-activity-events 7
 ```
 Collects activity events from the past 7 days (max 28 - the Power BI Admin API only retains
-28 days of activity history, and requires querying one UTC calendar day at a time).
+28 days of activity history, and requires querying one UTC calendar day at a time). It requests
+only `ViewReport` and `ViewDashboard` events directly from the API.
 
 #### List Workspaces
 ```bash
