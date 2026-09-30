@@ -27,6 +27,11 @@ from powerbi_governance.infrastructure.database.models import (
 
 ModelT = TypeVar("ModelT")
 
+# These events represent a user opening Power BI content. Administrative and
+# background operations, such as dataset refreshes, must not keep a license
+# classified as active.
+_LICENSE_USAGE_ACTIVITY_TYPES = frozenset({"viewreport", "viewdashboard"})
+
 
 class BaseRepository(Generic[ModelT]):
     """
@@ -271,15 +276,21 @@ class ActivityEventRepository(BaseRepository[ActivityEventModel]):
 
     def get_usage_summary_by_user(self) -> dict[str, dict[str, Any]]:
         """
-        Aggregate persisted activity events per user.
+        Aggregate persisted content-view events per user.
 
         Returns:
             Mapping of lowercased user_id (email/UPN) to
             {"last_access": datetime, "resources": set[str]} where resources
-            are the distinct resource names (reports/dashboards/datasets) touched.
+            are the distinct reports and dashboards viewed. Dataset refreshes,
+            workspace administration and other non-view events are excluded.
         """
         summary: dict[str, dict[str, Any]] = {}
-        for event in self.get_all(limit=1_000_000):
+        statement = (
+            select(ActivityEventModel)
+            .where(func.lower(ActivityEventModel.activity).in_(_LICENSE_USAGE_ACTIVITY_TYPES))
+            .limit(1_000_000)
+        )
+        for event in self.session.scalars(statement):
             user_key = event.user_id.lower()
             entry = summary.setdefault(user_key, {"last_access": event.event_time, "resources": set()})
 

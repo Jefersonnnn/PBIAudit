@@ -279,8 +279,8 @@ class TestActivityEventRepository:
         assert len(metrics) == 1
         assert (metrics[0].report_id, metrics[0].views, metrics[0].unique_viewers) == ("report-1", 1, 1)
 
-    def test_get_usage_summary_by_user_aggregates_last_access_and_resources(self, db_session: Session) -> None:
-        """Summary should group by lowercased user_id and collect distinct resources."""
+    def test_get_usage_summary_by_user_only_counts_content_view_events(self, db_session: Session) -> None:
+        """Administrative and background events must not keep a license active."""
         repository = ActivityEventRepository(db_session)
         repository.create(
             ActivityEvent(
@@ -295,9 +295,18 @@ class TestActivityEventRepository:
             ActivityEvent(
                 event_id="event-2",
                 user_id="USER@EXAMPLE.COM",
-                activity="ViewReport",
+                activity="ViewDashboard",
                 resource_name="Sales Dashboard",
                 event_time=datetime.utcnow() - timedelta(days=1),
+            )
+        )
+        repository.create(
+            ActivityEvent(
+                event_id="event-3",
+                user_id="user@example.com",
+                activity="RefreshDataset",
+                resource_name="Finance dataset",
+                event_time=datetime.utcnow(),
             )
         )
 
@@ -307,6 +316,7 @@ class TestActivityEventRepository:
         entry = summary["user@example.com"]
         assert entry["resources"] == {"Executive Dashboard", "Sales Dashboard"}
         assert entry["last_access"] > datetime.utcnow() - timedelta(days=2)
+        assert entry["last_access"] < datetime.utcnow() - timedelta(hours=12)
 
     def test_create_persists_details_as_a_dict(self, db_session: Session) -> None:
         """The raw audit log payload (a dict) must round-trip through the `details` column."""
