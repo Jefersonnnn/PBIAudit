@@ -188,16 +188,21 @@ poetry run pbi-governance license-report --inactive-days 30
 `license-report` reads the local database (populated by `sync-licenses` and
 `sync-activity-events`) and cross-references licensed users with their report and dashboard views to
 show, per user: name, email, job title/department (from Azure AD), license type, last access,
-which dashboards/reports they used, and whether the license looks idle or was never used — the
+which dashboards/reports they used, and whether the license looks idle or has no activity recorded
+in the local history — the
 report you'd use to reclaim unused seats out of a fixed license pool. Run the two sync commands
 first (or on a schedule) to keep it current.
+
+“No activity recorded” means the local database has no synchronized report or dashboard view for
+that user. It does not establish that the license was never used, because the audit-event history
+may start after the user used Power BI.
 
 #### License Usage by Department
 ```bash
 poetry run pbi-governance department-report --inactive-days 30
 ```
 Same underlying data as `license-report`, aggregated per department (from Azure AD) instead of per
-user: total licenses, active, idle and never-used counts, and idle percentage — sorted with the
+user: total licenses, active, idle and no-local-activity counts, and idle percentage — sorted with the
 most idle department first. Useful for spotting which team is holding onto unused seats without
 scrolling through every individual row. Requires the same syncs as `license-report`.
 

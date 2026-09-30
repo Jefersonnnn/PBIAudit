@@ -48,7 +48,7 @@ class TestRenderLicenseUsageReport:
         ]
         summaries = [
             DepartmentUsageSummary(
-                department="Financeiro", total_licenses=2, active_count=1, idle_count=1, never_used_count=1
+                department="Financeiro", total_licenses=2, active_count=1, idle_count=0, no_activity_recorded_count=1
             )
         ]
 
@@ -60,14 +60,16 @@ class TestRenderLicenseUsageReport:
         assert "Bruno Lima" in html and "bruno@example.com" in html
         assert "Executive Dashboard" in html
         assert "Sales Dashboard" in html
-        assert "Nenhum dashboard acessado." in html  # Bruno never used any
+        assert "Nenhum dashboard acessado." in html
+        assert "Sem atividade registrada" in html
+        assert "ausência de eventos de visualização no histórico local" in html
         assert "2 licença(s)" in html
 
     def test_escapes_user_supplied_values(self):
         rows = [_row(display_name="<script>alert(1)</script>", resources=["<img src=x>"])]
         summaries = [
             DepartmentUsageSummary(
-                department="Financeiro", total_licenses=1, active_count=0, idle_count=1, never_used_count=1
+                department="Financeiro", total_licenses=1, active_count=0, idle_count=0, no_activity_recorded_count=1
             )
         ]
 
@@ -81,7 +83,7 @@ class TestRenderLicenseUsageReport:
         rows = [_row(department=None)]
         summaries = [
             DepartmentUsageSummary(
-                department="Sem departamento", total_licenses=1, active_count=0, idle_count=1, never_used_count=1
+                department="Sem departamento", total_licenses=1, active_count=0, idle_count=0, no_activity_recorded_count=1
             )
         ]
 
@@ -111,15 +113,15 @@ class TestRenderLicenseUsageReport:
                 department="034 CEM Coordenação Eletromecânica",
                 total_licenses=1,
                 active_count=0,
-                idle_count=1,
-                never_used_count=1,
+                idle_count=0,
+                no_activity_recorded_count=1,
             ),
             DepartmentUsageSummary(
                 department="034 CEM Manutenção Mecânica",
                 total_licenses=1,
                 active_count=0,
-                idle_count=1,
-                never_used_count=1,
+                idle_count=0,
+                no_activity_recorded_count=1,
             ),
         ]
 
@@ -138,8 +140,8 @@ class TestRenderLicenseUsageReport:
             _row(display_name="Bruno Lima", email="bruno@example.com", department="GTI"),
         ]
         summaries = [
-            DepartmentUsageSummary("026 CIN Coordenação de Infraestrutura de TI", 1, 0, 1, 1),
-            DepartmentUsageSummary("GTI", 1, 0, 1, 1),
+            DepartmentUsageSummary("026 CIN Coordenação de Infraestrutura de TI", 1, 0, 0, 1),
+            DepartmentUsageSummary("GTI", 1, 0, 0, 1),
         ]
         mapping = GerenciaMapping(names={"026": "Gerência de TI"}, aliases={"gti": "026"})
 
@@ -153,7 +155,7 @@ class TestRenderLicenseUsageReport:
 
     def test_gerencia_name_not_starting_with_gerencia_is_prefixed_with_it(self):
         rows = [_row(department="034 CEM Coordenação")]
-        summaries = [DepartmentUsageSummary("034 CEM Coordenação", 1, 0, 1, 1)]
+        summaries = [DepartmentUsageSummary("034 CEM Coordenação", 1, 0, 0, 1)]
         mapping = GerenciaMapping(names={"034": "Manutenção"})
 
         html = render_license_usage_report(rows, summaries, inactive_days=30, gerencia_mapping=mapping)
@@ -162,7 +164,7 @@ class TestRenderLicenseUsageReport:
 
     def test_gerencia_without_a_name_in_the_mapping_shows_only_its_code(self):
         rows = [_row(department="034 CEM Coordenação")]
-        summaries = [DepartmentUsageSummary("034 CEM Coordenação", 1, 0, 1, 1)]
+        summaries = [DepartmentUsageSummary("034 CEM Coordenação", 1, 0, 0, 1)]
         mapping = GerenciaMapping(names={"026": "Gerência de TI"})
 
         html = render_license_usage_report(rows, summaries, inactive_days=30, gerencia_mapping=mapping)
@@ -172,7 +174,7 @@ class TestRenderLicenseUsageReport:
 
     def test_renders_the_filter_controls_hidden_until_javascript_reveals_them(self):
         rows = [_row()]
-        summaries = [DepartmentUsageSummary("Financeiro", 1, 0, 1, 1)]
+        summaries = [DepartmentUsageSummary("Financeiro", 1, 0, 0, 1)]
 
         html = render_license_usage_report(rows, summaries, inactive_days=30)
 
@@ -194,17 +196,17 @@ class TestRenderLicenseUsageReport:
             ),
             _row(display_name="José Nunes", email="jose@example.com", last_access=None, days_since_access=None),
         ]
-        summaries = [DepartmentUsageSummary("Financeiro", 3, 1, 2, 1)]
+        summaries = [DepartmentUsageSummary("Financeiro", 3, 1, 1, 1)]
 
         html = render_license_usage_report(rows, summaries, inactive_days=30)
 
         assert 'data-status="active" data-search="Ana Souza ana@example.com"' in html
         assert 'data-status="idle" data-search="Bruno Lima bruno@example.com"' in html
-        assert 'data-status="never" data-search="José Nunes jose@example.com"' in html
+        assert 'data-status="unrecorded" data-search="José Nunes jose@example.com"' in html
 
     def test_escapes_the_search_attribute(self):
         rows = [_row(display_name='Ana" onmouseover="alert(1)', email="ana@example.com")]
-        summaries = [DepartmentUsageSummary("Financeiro", 1, 0, 1, 1)]
+        summaries = [DepartmentUsageSummary("Financeiro", 1, 0, 0, 1)]
 
         html = render_license_usage_report(rows, summaries, inactive_days=30)
 
@@ -215,7 +217,7 @@ class TestRenderLicenseUsageReport:
         rows = [_row(department="Financeiro")]
         summaries = [
             DepartmentUsageSummary(
-                department="Financeiro", total_licenses=1, active_count=0, idle_count=1, never_used_count=1
+                department="Financeiro", total_licenses=1, active_count=0, idle_count=0, no_activity_recorded_count=1
             )
         ]
 

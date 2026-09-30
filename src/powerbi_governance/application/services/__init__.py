@@ -564,11 +564,11 @@ class DepartmentUsageSummary:
     total_licenses: int
     active_count: int
     idle_count: int
-    never_used_count: int
+    no_activity_recorded_count: int
 
     @property
     def idle_percentage(self) -> float:
-        """Share of this department's licenses that are idle or never used."""
+        """Share of this department's licenses with a recorded idle period."""
         return (self.idle_count / self.total_licenses * 100) if self.total_licenses else 0.0
 
 
@@ -656,8 +656,8 @@ class LicenseService:
                 lowercased email/UPN to {"last_access": datetime, "resources": set[str]}
 
         Returns:
-            One row per license assignment, sorted with the longest-idle
-            (or never-used) licenses first.
+            One row per license assignment, sorted with licenses that have no
+            locally recorded activity, then the longest recorded idle period.
         """
         now = datetime.utcnow()
         rows: list[LicenseUsageRow] = []
@@ -710,12 +710,13 @@ class LicenseService:
         counts: dict[str, dict[str, int]] = {}
         for row in rows:
             department = row.department or _UNKNOWN_DEPARTMENT
-            bucket = counts.setdefault(department, {"total": 0, "active": 0, "idle": 0, "never_used": 0})
+            bucket = counts.setdefault(
+                department, {"total": 0, "active": 0, "idle": 0, "no_activity_recorded": 0}
+            )
             bucket["total"] += 1
 
             if row.last_access is None:
-                bucket["never_used"] += 1
-                bucket["idle"] += 1
+                bucket["no_activity_recorded"] += 1
             elif row.days_since_access is not None and row.days_since_access >= inactive_days:
                 bucket["idle"] += 1
             else:
@@ -727,7 +728,7 @@ class LicenseService:
                 total_licenses=bucket["total"],
                 active_count=bucket["active"],
                 idle_count=bucket["idle"],
-                never_used_count=bucket["never_used"],
+                no_activity_recorded_count=bucket["no_activity_recorded"],
             )
             for department, bucket in counts.items()
         ]

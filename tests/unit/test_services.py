@@ -349,7 +349,7 @@ class TestLicenseService:
         with pytest.raises(RuntimeError, match="License assignment synchronization failed"):
             await LicenseService(graph_client, FakeLicenseRepository()).sync_license_assignments()
 
-    def test_build_usage_report_flags_idle_and_never_used_licenses_first(self):
+    def test_build_usage_report_lists_no_recorded_activity_before_idle_licenses(self):
         repository = FakeLicenseRepository()
         repository.assignments = [
             LicenseAssignment(
@@ -387,11 +387,11 @@ class TestLicenseService:
         rows = LicenseService(AsyncMock(), repository, user_repository).build_usage_report(activity_summary)
 
         assert [row.email for row in rows] == ["idle@example.com", "active@example.com"]
-        never_used_row = rows[0]
-        assert never_used_row.last_access is None
-        assert never_used_row.days_since_access is None
-        assert never_used_row.resources == []
-        assert never_used_row.job_title is None  # no profile synced for this user
+        no_activity_row = rows[0]
+        assert no_activity_row.last_access is None
+        assert no_activity_row.days_since_access is None
+        assert no_activity_row.resources == []
+        assert no_activity_row.job_title is None  # no profile synced for this user
 
         active_row = rows[1]
         assert active_row.days_since_access == 1
@@ -419,7 +419,7 @@ class TestLicenseService:
             LicenseAssignment(
                 user_id="user-3",
                 email="never-used@example.com",
-                display_name="Never Used",
+                display_name="No Activity",
                 license_type="Power BI Pro",
                 service_plan_name="BI_AZURE_P2",
             ),
@@ -452,7 +452,7 @@ class TestLicenseService:
             User(
                 user_id="user-3",
                 email="never-used@example.com",
-                display_name="Never Used",
+                display_name="No Activity",
                 department="Financeiro",
             )
         )
@@ -465,21 +465,20 @@ class TestLicenseService:
         by_department = {summary.department: summary for summary in summaries}
 
         assert by_department["Financeiro"].total_licenses == 1
-        assert by_department["Financeiro"].never_used_count == 1
-        assert by_department["Financeiro"].idle_percentage == 100.0
+        assert by_department["Financeiro"].no_activity_recorded_count == 1
+        assert by_department["Financeiro"].idle_count == 0
+        assert by_department["Financeiro"].idle_percentage == 0.0
 
         assert by_department["Sem departamento"].total_licenses == 1
-        assert by_department["Sem departamento"].idle_percentage == 100.0
+        assert by_department["Sem departamento"].no_activity_recorded_count == 1
+        assert by_department["Sem departamento"].idle_percentage == 0.0
 
         comercial = by_department["Comercial"]
         assert comercial.total_licenses == 2
         assert comercial.active_count == 1
         assert comercial.idle_count == 1
-        assert comercial.never_used_count == 0
+        assert comercial.no_activity_recorded_count == 0
         assert comercial.idle_percentage == 50.0
 
-        # ranked with the highest idle percentage first; ties broken by more licenses
-        assert [summary.department for summary in summaries][:2] == ["Financeiro", "Sem departamento"] or [
-            summary.department for summary in summaries
-        ][:2] == ["Sem departamento", "Financeiro"]
-        assert summaries[-1].department == "Comercial"
+        # ranked with the highest recorded idle percentage first
+        assert summaries[0].department == "Comercial"
